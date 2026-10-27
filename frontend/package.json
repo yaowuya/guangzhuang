@@ -11,7 +11,8 @@
     "test:unit": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
     "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
-    "check:artifact": "node scripts/check-artifact.mjs"
+    "check:artifact": "node scripts/check-artifact.mjs",
+    "source-check": "node scripts/check-visual-sources.mjs"
   },
   "dependencies": {
     "vue": "^3.5.44",
