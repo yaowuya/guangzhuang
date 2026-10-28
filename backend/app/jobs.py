@@ -98,6 +98,8 @@ def retry_job(db: Session, job_id: int, now: datetime) -> EnqueueResult:
 
 
 class EntryResultOut(BaseModel):
+    """单入口任务结果及来源身份；错误只使用安全短文案。"""
+
     entry_id: int
     source_id: int
     source_name: str
@@ -110,6 +112,8 @@ class EntryResultOut(BaseModel):
 
 
 class JobOut(BaseModel):
+    """持久任务及入口结果聚合 DTO；计数仅包含已提交记录。"""
+
     id: int
     trigger: Literal["schedule", "catchup", "refresh", "retry"]
     state: Literal["pending", "running", "succeeded", "partial", "failed", "interrupted"]

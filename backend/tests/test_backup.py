@@ -2,7 +2,11 @@
 
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
+import sys
 
 import pytest
 
@@ -62,6 +66,28 @@ def test_backup_failure_preserves_last_valid_and_cleans_temporary(
     assert not list(folder.glob(".*.tmp"))
 
 
+def test_existing_daily_backup_rotation_error_is_safe(db, article_factory, tmp_path, now, monkeypatch):
+    """已有当日健康快照时，旧份轮换失败也转换为可重试backup_failed。"""
+    article_factory()
+    folder = tmp_path / "backups"
+    current = daily_backup(db.bind.url.database, folder, now)
+    for day in range(1, 8):
+        shutil.copyfile(current, folder / f"backup-2025-12-{day:02d}.sqlite3")
+    obsolete = folder / "backup-2025-12-01.sqlite3"
+    real_unlink = type(obsolete).unlink
+
+    def deny_obsolete(path, *args, **kwargs):
+        if path == obsolete:
+            raise PermissionError("ROTATION_DENIED_SENTINEL")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(obsolete), "unlink", deny_obsolete)
+    with pytest.raises(ApiError) as error:
+        daily_backup(db.bind.url.database, folder, now)
+    assert (error.value.status, error.value.code) == (503, "backup_failed")
+    assert current.exists() and obsolete.exists()
+
+
 def test_missing_or_unmigrated_database_never_becomes_backup(tmp_path, now):
     """不存在或无七表/迁移版本的SQLite文件不能获得正式backup文件名。"""
     folder = tmp_path / "backups"
@@ -97,6 +123,26 @@ def test_idle_tick_creates_backup_and_failure_is_safe_retryable(
     assert previous.exists()
     assert any(record.message == "backup_failed" for record in caplog.records)
     assert "DISK_FULL_SENTINEL" not in caplog.text
+
+
+def test_idle_tick_validates_daily_backup_once_per_worker_day(db, tmp_path, monkeypatch):
+    """空闲worker同一天只做一次完整备份校验，失败时才保留下次tick重试。"""
+    from app import schedule
+
+    calls = []
+    db.info["backup_dir"] = tmp_path / "backups"
+
+    def record_backup(db_path, directory, now):
+        calls.append((db_path, directory, now.date()))
+        return None
+
+    monkeypatch.setattr(schedule, "daily_backup", record_backup)
+    first = datetime(2026, 1, 1, 22, 0, tzinfo=UTC)
+    assert tick(db, first) is None
+    assert tick(db, first + timedelta(seconds=1)) is None
+    assert len(calls) == 1
+    assert tick(db, first + timedelta(days=1)) is None
+    assert len(calls) == 2
 
 
 def test_restore_requires_stop_and_confirmation(db, article_factory, tmp_path, now):
@@ -153,6 +199,117 @@ def test_corrupt_restore_input_leaves_current_database_unchanged(db, article_fac
     db.expire_all()
     assert db.get(type(article), article.id).title == "当前有效标题"
     assert not (tmp_path / "pre-restore").exists()
+
+
+def test_restore_rejects_wrong_revision_missing_columns_and_orphan_foreign_keys(
+    db, article_factory, tmp_path, now,
+):
+    """伪造表名、未知迁移版本和孤儿引用都不能替换当前运行库。"""
+    article_factory()
+    valid = backup_once(db.bind.url.database, tmp_path / "backups", now)
+    candidates = []
+
+    wrong_revision = tmp_path / "wrong-revision.sqlite3"
+    shutil.copyfile(valid, wrong_revision)
+    with closing(sqlite3.connect(wrong_revision)) as connection:
+        connection.execute("UPDATE alembic_version SET version_num='future_or_fake'")
+        connection.commit()
+    candidates.append(wrong_revision)
+
+    missing_columns = tmp_path / "missing-columns.sqlite3"
+    with closing(sqlite3.connect(missing_columns)) as connection:
+        connection.execute("CREATE TABLE alembic_version(version_num TEXT NOT NULL)")
+        connection.execute("INSERT INTO alembic_version VALUES ('0004_sessions')")
+        for table in ("sources", "source_entries", "articles", "bookmarks",
+                      "update_jobs", "entry_results", "sessions"):
+            connection.execute(f'CREATE TABLE "{table}" (id INTEGER PRIMARY KEY)')
+        connection.commit()
+    candidates.append(missing_columns)
+
+    orphan = tmp_path / "orphan.sqlite3"
+    shutil.copyfile(valid, orphan)
+    with closing(sqlite3.connect(orphan)) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "INSERT INTO bookmarks(article_id,created_at) VALUES (999999,'2026-01-01T00:00:00')"
+        )
+        connection.commit()
+    candidates.append(orphan)
+
+    wrong_index = tmp_path / "wrong-index.sqlite3"
+    shutil.copyfile(valid, wrong_index)
+    with closing(sqlite3.connect(wrong_index)) as connection:
+        connection.execute("DROP INDEX uq_active_job")
+        connection.execute("CREATE UNIQUE INDEX uq_active_job ON update_jobs(active_key)")
+        connection.commit()
+    candidates.append(wrong_index)
+
+    wrong_check = tmp_path / "wrong-check.sqlite3"
+    shutil.copyfile(valid, wrong_check)
+    with closing(sqlite3.connect(wrong_check)) as connection:
+        original_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='update_jobs'"
+        ).fetchone()[0]
+        weakened_sql = original_sql.replace(
+            "CONSTRAINT ck_job_state CHECK (state IN ('pending','running','succeeded','partial','failed','interrupted'))",
+            "CONSTRAINT ck_job_state CHECK (1)",
+        )
+        assert weakened_sql != original_sql
+        version = connection.execute("PRAGMA schema_version").fetchone()[0]
+        connection.execute("PRAGMA writable_schema=ON")
+        connection.execute("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='update_jobs'",
+                           (weakened_sql,))
+        connection.execute("PRAGMA writable_schema=OFF")
+        connection.execute(f"PRAGMA schema_version={version + 1}")
+        connection.commit()
+    candidates.append(wrong_check)
+
+    for candidate in candidates:
+        with pytest.raises(ValueError):
+            restore_backup(candidate, db.bind.url.database, tmp_path / "application.lock",
+                           "已确认损失备份后的写入")
+    assert not (tmp_path / "pre-restore").exists()
+
+
+def test_restore_replace_failure_preserves_committed_wal_data(
+    db, article_factory, tmp_path, now, monkeypatch,
+):
+    """安装staged失败前先checkpoint，当前库不能因sidecar清理丢失已提交WAL写入。"""
+    from app import backup
+
+    article = article_factory(title="备份版本")
+    database = db.bind.url.database
+    image = backup_once(database, tmp_path / "backups", now)
+    article_id = article.id
+    engine = db.bind
+    db.close()
+    engine.dispose()
+
+    script = """
+import os, sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+connection.execute('PRAGMA journal_mode=WAL')
+connection.execute('PRAGMA wal_autocheckpoint=0')
+connection.execute('UPDATE articles SET title=? WHERE id=?', ('WAL最新写入', int(sys.argv[2])))
+connection.commit()
+os._exit(0)
+"""
+    subprocess.run([sys.executable, "-c", script, database, str(article_id)], check=True)
+    assert Path(f"{database}-wal").exists()
+    real_replace = backup.os.replace
+
+    def fail_install(source, target):
+        if Path(target) == Path(database) and str(source).endswith(".restore"):
+            raise OSError("REPLACE_FAILED_SENTINEL")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(backup.os, "replace", fail_install)
+    with pytest.raises(ApiError) as error:
+        restore_backup(image, database, tmp_path / "application.lock",
+                       "已确认损失备份后的写入")
+    assert error.value.code == "restore_failed"
+    with closing(sqlite3.connect(database)) as current:
+        assert current.execute("SELECT title FROM articles WHERE id=?", (article_id,)).fetchone()[0] == "WAL最新写入"
 
 
 def test_api_lifespan_holds_shared_application_lease(client, db, article_factory, settings, tmp_path, now):

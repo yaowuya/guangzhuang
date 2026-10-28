@@ -31,18 +31,51 @@ it('does not allow an older session check to clear a newer successful login', as
   expect(session.auth.value?.csrf_token).toBe('unit-csrf')
 })
 
-it('keeps a newer session when an old logout response arrives late', async () => {
+it('serializes concurrent logins so browser cookies and memory keep the same order', async () => {
   const api = createApi(vi.fn<typeof fetch>())
-  vi.spyOn(api, 'login').mockResolvedValueOnce(authFixture())
+  let finishFirstLogin!: (value: ReturnType<typeof authFixture>) => void
+  const login = vi.spyOn(api, 'login')
+    .mockReturnValueOnce(new Promise((resolve) => { finishFirstLogin = resolve }))
+    .mockResolvedValueOnce({ ...authFixture(), csrf_token: 'new-session-csrf' })
+  const session = createSession(api)
+  const first = session.login('old-password')
+  const second = session.login('new-password')
+  await vi.waitFor(() => expect(login).toHaveBeenCalledTimes(1))
+  finishFirstLogin(authFixture())
+  expect((await first).csrf_token).toBe('unit-csrf')
+  expect((await second).csrf_token).toBe('new-session-csrf')
+  expect(login).toHaveBeenCalledTimes(2)
+  expect(session.auth.value?.csrf_token).toBe('new-session-csrf')
+})
+
+it('lets an in-flight login finish after a local clear to match the confirmed cookie', async () => {
+  const api = createApi(vi.fn<typeof fetch>())
+  let finishLogin!: (value: ReturnType<typeof authFixture>) => void
+  vi.spyOn(api, 'login').mockReturnValue(new Promise((resolve) => { finishLogin = resolve }))
+  const session = createSession(api)
+  const pending = session.login('unit-password')
+  session.clear()
+  finishLogin(authFixture())
+  await pending
+  expect(session.auth.value?.csrf_token).toBe('unit-csrf')
+  expect(session.status.value).toBe('authenticated')
+})
+
+it('queues a new login behind logout so late cookie deletion cannot erase it', async () => {
+  const api = createApi(vi.fn<typeof fetch>())
+  const login = vi.spyOn(api, 'login').mockResolvedValueOnce(authFixture())
     .mockResolvedValueOnce({ ...authFixture(), csrf_token: 'new-session-csrf' })
   let finishLogout!: (value: { authenticated: false }) => void
   vi.spyOn(api, 'logout').mockReturnValue(new Promise((resolve) => { finishLogout = resolve }))
   const session = createSession(api)
   await session.login('unit-password')
   const oldLogout = session.logout()
-  await session.login('unit-password')
+  const newLogin = session.login('unit-password')
+  expect(login).toHaveBeenCalledTimes(1)
   finishLogout({ authenticated: false })
   await oldLogout
+  await newLogin
+  expect(login).toHaveBeenCalledTimes(2)
   expect(session.auth.value?.csrf_token).toBe('new-session-csrf')
   expect(session.status.value).toBe('authenticated')
 })

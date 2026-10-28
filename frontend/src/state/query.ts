@@ -68,8 +68,8 @@ export function encodeQuery(query: ArticleQuery): string {
   return encoded.toString()
 }
 
+/** 更换交集条件后回到第一页；浏览器返回仍可由旧 URL 恢复原页。 */
 export function changeFilters(current: ArticleQuery, patch: Partial<ArticleQuery>): ArticleQuery {
-  // 更换交集条件后回到第一页；浏览器返回仍可以由旧 URL 恢复原页。
   return { ...current, ...patch, page: 1 }
 }
 

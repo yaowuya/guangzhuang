@@ -166,19 +166,23 @@ def test_public_list_branch_uses_only_frozen_selection(db, settings, http_lab, n
         "entry_key": spec.key, "verification_status": "allowed",
         "verification_reason": "UNIT_ONLY 允许标题测试", "verification_reference": "unit-reference",
         "automation_allowed": True, "title_storage_allowed": True,
+        "selection": spec.selection,
     }, {
         "attempted": True, "succeeded": True, "checked_at": now.isoformat(),
         "title_count": 1, "final_url": spec.url, "error": None,
     }, now)
     entry = next(item for item in eligible_entries(db) if item.entry_key == spec.key)
-    http_lab.reply(entry.url, headers={"Content-Type": "text/html"}, body=b"""
+    final_url = "https://www.iqingyan.cn/news/"
+    http_lab.reply(entry.url, status=302, headers={"Location": final_url})
+    http_lab.reply(final_url, headers={"Content-Type": "text/html"}, body=b"""
       <main class='feed'><article class='card'><h2>New product</h2>
-      <a class='read' href='/article/1'>Read</a><div class='body'>RAW_SENTINEL</div>
+      <a class='read' href='article/1'>Read</a><div class='body'>RAW_SENTINEL</div>
       </article></main>""")
     result = ingest_entry(db, entry, http_lab.client_for(entry), now)
     assert result.added == 1
     article = db.scalar(select(Article))
     assert (article.title, article.category_codes) == ("New product", ["new_products"])
+    assert article.original_url == "https://www.iqingyan.cn/news/article/1"
     assert not hasattr(article, "body")
 
 

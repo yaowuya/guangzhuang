@@ -112,6 +112,11 @@ def process_job(
             except SQLAlchemyError:
                 db.rollback()
                 raise
+            logging.getLogger("beauty_intelligence.worker").warning(
+                "entry_failed",
+                extra={"job_id": job.id, "entry_id": result.entry_id,
+                       "error_type": type(error).__name__},
+            )
     return finish_job(db, job, now_fn())
 
 
@@ -138,6 +143,9 @@ def settle_interrupted(db: Session, now: datetime) -> int:
     return len(jobs)
 
 
+# fp-debt: 当前个人单机与固定来源范围采用一个串行 worker + SQLite，避免引入无证据的队列服务。
+# 上限：单台主机、一个 API、一个 worker；触发：实测更新无法在日程窗口完成、锁冲突影响阅读，或需要多机写入。
+# 升级：将持久任务/幂等语义迁移至 PostgreSQL 与受控队列；风险 owner 见 fp-docs/changes/beauty-intelligence-mvp/design/backend.md#风险迁移发布回滚与监控。
 def worker_loop(settings: Settings | None = None) -> None:
     """独立进程持续认领持久任务；不在 API 进程创建线程或读取浏览器状态。"""
     resolved = settings or Settings.from_environment()

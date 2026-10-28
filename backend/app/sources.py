@@ -11,11 +11,11 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from .models import Source, SourceEntry
+from .models import Article, Source, SourceEntry
 
 
 CANDIDATES = (
@@ -249,6 +249,19 @@ def _aggregate(source: Source, entries: list[SourceEntry]) -> None:
         source.verification_status, source.reason = "restricted", "全部固定入口受限"
 
 
+def _image_matches_spec(url: str | None, spec: EntrySpec) -> bool:
+    """用当前固定配置复核已存图片主机；许可收窄时旧外链必须失效。"""
+    if not spec.image_allowed or not url:
+        return False
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").encode("idna").decode("ascii").lower()
+    except (ValueError, UnicodeError):
+        return False
+    return (parsed.scheme.lower() == "https" and parsed.username is None
+            and parsed.password is None and host in spec.image_hosts)
+
+
 def _safe_probe(probe: dict) -> None:
     allowed = {"attempted", "succeeded", "checked_at", "title_count", "final_url", "error"}
     if not isinstance(probe, dict) or not set(probe) <= allowed:
@@ -264,6 +277,26 @@ def _safe_probe(probe: dict) -> None:
         or any(marker in error.casefold() for marker in ("cookie", "password", "csrf", "token"))
     ):
         raise ValueError("入口运行错误说明无效")
+    attempted = probe["attempted"]
+    succeeded = probe["succeeded"]
+    checked_at = probe.get("checked_at")
+    final_url = probe.get("final_url")
+    title_count = probe.get("title_count", 0)
+    if succeeded and (
+        not attempted or title_count < 1 or not isinstance(checked_at, str) or not checked_at
+        or not isinstance(final_url, str) or not final_url or error is not None
+    ):
+        raise ValueError("成功运行结果字段互相矛盾")
+    if attempted and not succeeded and (
+        not isinstance(checked_at, str) or not checked_at
+        or not isinstance(error, str) or not error
+        or final_url is not None and not isinstance(final_url, str)
+    ):
+        raise ValueError("失败运行结果字段不完整")
+    if not attempted and (
+        succeeded or title_count != 0 or checked_at is not None or final_url is not None
+    ):
+        raise ValueError("未探测运行结果不得包含探测数据")
 
 
 def apply_verification(db: Session, evidence: dict, probe: dict, now: datetime) -> None:
@@ -310,24 +343,61 @@ def apply_verification(db: Session, evidence: dict, probe: dict, now: datetime) 
     spec = specs.get(evidence["entry_key"])
     if spec is None:
         raise ValueError("入口不在固定候选中")
+    evidence_image = evidence.get("image_allowed", False)
+    evidence_hosts = evidence.get("image_hosts", [])
+    if type(evidence_image) is not bool or not isinstance(evidence_hosts, list) or any(
+        not isinstance(host, str) or not host for host in evidence_hosts
+    ):
+        raise ValueError("图片许可字段无效")
+    if status == "allowed" and (
+        evidence_image is not spec.image_allowed
+        or tuple(evidence_hosts) != spec.image_hosts
+        or evidence.get("selection") != spec.selection
+    ):
+        raise ValueError("核验证据与固定入口图片/列表配置不一致")
+    if status == "allowed" and spec.kind == "public_list" and spec.selection is None:
+        raise ValueError("公开列表获准前必须冻结已验证选择器")
+    if spec.kind == "rss" and spec.selection is not None:
+        raise ValueError("RSS入口不能携带公开列表选择器")
+    terms_checked_at = evidence.get("terms_checked_at")
+    if terms_checked_at is not None and (
+        not isinstance(terms_checked_at, str) or not terms_checked_at.strip()
+    ):
+        raise ValueError("条款核验时间无效")
     if probe["succeeded"]:
         final = urlsplit(probe["final_url"])
         if final.scheme.lower() != "https" or final.hostname not in spec.allowed_hosts:
             raise ValueError("成功运行结果离开固定入口主机范围")
-    source, entry = _entry_for_spec(db, spec)
-    entry.verification_status = status
-    entry.verification_reason = reason
-    entry.verification_reference = reference
-    entry.enabled = status == "allowed" and probe["succeeded"] is True
-    if probe["succeeded"]:
-        entry.last_success_at, entry.last_error = now, None
-    elif probe["attempted"]:
-        entry.last_error = probe.get("error") or "目标环境未取得有效标题"
-    entries = list(db.scalars(select(SourceEntry).where(SourceEntry.source_id == source.id).order_by(SourceEntry.id)))
-    _aggregate(source, entries)
     try:
+        source, entry = _entry_for_spec(db, spec)
+        entry.verification_status = status
+        entry.verification_reason = reason
+        entry.verification_reference = reference
+        entry.enabled = status == "allowed" and probe["succeeded"] is True
+        image_permitted = status == "allowed" and evidence_image and spec.image_allowed
+        if not image_permitted:
+            # Article.first_entry_id 是图片许可的稳定归属；撤销或配置不匹配时同步清除外链与署名。
+            db.execute(update(Article).where(
+                Article.first_entry_id == entry.id,
+                Article.image_url.is_not(None) | Article.image_credit.is_not(None),
+            ).values(image_url=None, image_credit=None, updated_at=now))
+        else:
+            for article in db.scalars(select(Article).where(
+                Article.first_entry_id == entry.id, Article.image_url.is_not(None),
+            )):
+                if not _image_matches_spec(article.image_url, spec):
+                    article.image_url = None
+                    article.image_credit = None
+                    article.updated_at = now
+        if probe["succeeded"]:
+            entry.last_success_at, entry.last_error = now, None
+        elif probe["attempted"]:
+            entry.last_error = probe.get("error") or "目标环境未取得有效标题"
+        entries = list(db.scalars(select(SourceEntry).where(
+            SourceEntry.source_id == source.id).order_by(SourceEntry.id)))
+        _aggregate(source, entries)
         db.commit()
-    except SQLAlchemyError:
+    except Exception:
         db.rollback()
         raise
 

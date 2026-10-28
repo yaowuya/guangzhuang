@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta, timezone
+import json
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,13 @@ from app.sources import apply_verification, eligible_entries, load_registry, see
 
 
 def approve_schedule_entry(db, settings, now, keys=("prtimes-rss",)):
-    settings.source_config.write_text(Path("config/sources.json").read_text(encoding="utf-8"), encoding="utf-8")
+    registry = json.loads(Path("config/sources.json").read_text(encoding="utf-8"))
+    for item in registry:
+        if item["key"] in keys and item["kind"] == "public_list":
+            item["selection"] = {
+                "container": "main", "item": "article", "title": "h2", "link": "a",
+            }
+    settings.source_config.write_text(json.dumps(registry), encoding="utf-8")
     db.info["source_config"] = settings.source_config
     specs = load_registry(settings.source_config)
     seed_sources(db, specs)
@@ -23,6 +30,7 @@ def approve_schedule_entry(db, settings, now, keys=("prtimes-rss",)):
             "entry_key": spec.key, "verification_status": "allowed",
             "verification_reason": "UNIT_ONLY 许可", "verification_reference": "unit-reference",
             "automation_allowed": True, "title_storage_allowed": True,
+            "selection": spec.selection,
         }, {
             "attempted": True, "succeeded": True, "checked_at": now.isoformat(),
             "title_count": 1, "final_url": spec.url, "error": None,
@@ -130,6 +138,16 @@ def test_catchup_before_time_success_and_no_candidate_do_not_consume(db, setting
     db.commit()
     assert catchup_due(db, next_day).job.trigger == "catchup"
     assert succeeded.state == "succeeded"
+
+
+def test_successful_schedule_short_circuits_missing_source_config(db, job_factory, now):
+    """当日日程已成功时无需再读取候选配置，配置临时缺失也不应终止worker。"""
+    local_date = datetime(2026, 10, 27, 2, 0, tzinfo=UTC).astimezone(
+        timezone(timedelta(hours=8))).date()
+    job_factory(trigger="schedule", schedule_date=local_date, state="succeeded",
+                result_states=["succeeded"])
+    db.info.pop("source_config", None)
+    assert catchup_due(db, datetime(2026, 10, 27, 2, 0, tzinfo=UTC)) is None
 
 
 def test_manual_activity_delays_catchup_until_it_finishes(db, settings, job_factory, now):

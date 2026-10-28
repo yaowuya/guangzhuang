@@ -44,7 +44,7 @@ docker compose -f deploy/compose.yaml run --rm --no-deps worker \
 
 ```bash
 docker compose -f deploy/compose.yaml run --rm --no-deps worker \
-  alembic -c /app/alembic.ini upgrade head
+  alembic -c /srv/app/alembic.ini upgrade head
 ```
 
 4. 启动服务并检查，而不是直接宣称恢复成功：

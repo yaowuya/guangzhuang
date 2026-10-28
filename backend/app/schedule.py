@@ -67,9 +67,9 @@ def catchup_due(db: Session, now: datetime) -> EnqueueResult | None:
     scheduled = db.scalar(select(UpdateJob).where(
         UpdateJob.trigger == "schedule", UpdateJob.schedule_date == local.date(),
     ).order_by(UpdateJob.id.desc()))
-    allowed = {entry.id for entry in eligible_entries(db)}
     if scheduled is not None and scheduled.state == "succeeded":
         return None
+    allowed = {entry.id for entry in eligible_entries(db)}
     if scheduled is None or not scheduled.entries:
         ids = sorted(allowed)
     else:
@@ -94,10 +94,14 @@ def tick(db: Session, now: datetime) -> EnqueueResult | None:
     backup_dir = db.info.get("backup_dir")
     if backup_dir is None:
         return None
-    # 释放日程查询事务后再用独立SQLite连接在线备份，避免把空闲维护变成长事务。
+    local_day = _local(now).date()
+    if db.info.get("backup_validated_date") == local_day:
+        return None
+    # 释放日程查询事务后再用独立SQLite连接在线备份；成功日期仅驻本worker会话，重启最多复核一次。
     db.rollback()
     try:
         daily_backup(db.bind.url.database, backup_dir, now)
+        db.info["backup_validated_date"] = local_day
     except ApiError:
         logging.getLogger("beauty_intelligence.backup").error("backup_failed")
     return None

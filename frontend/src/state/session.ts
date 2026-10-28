@@ -14,6 +14,14 @@ export function createSession(api: ApiClient) {
   const status = ref<SessionStatus>('unknown')
   let pendingEnsure: Promise<AuthOut | null> | null = null
   let revision = 0
+  let authMutation: Promise<void> = Promise.resolve()
+
+  /** 登录和退出都会改变浏览器 Cookie；串行发送才能让 Cookie 与内存状态保持相同顺序。 */
+  function serializeAuth<T>(action: () => Promise<T>): Promise<T> {
+    const result = authMutation.catch(() => undefined).then(action)
+    authMutation = result.then(() => undefined, () => undefined)
+    return result
+  }
 
   function clear(reason: 'anonymous' | 'expired' = 'anonymous') {
     revision += 1
@@ -45,33 +53,37 @@ export function createSession(api: ApiClient) {
     return pendingEnsure
   }
 
-  async function login(password: string): Promise<AuthOut> {
-    try {
-      const confirmed = await api.login(password)
-      revision += 1
-      auth.value = confirmed
-      status.value = 'authenticated'
-      return confirmed
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401 && !auth.value) clear()
-      throw error
-    }
+  function login(password: string): Promise<AuthOut> {
+    return serializeAuth(async () => {
+      try {
+        const confirmed = await api.login(password)
+        revision += 1
+        auth.value = confirmed
+        status.value = 'authenticated'
+        return confirmed
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401 && !auth.value) clear()
+        throw error
+      }
+    })
   }
 
-  async function logout(): Promise<void> {
-    if (!auth.value) throw new ApiError(401, 'unauthenticated', '登录已失效', '')
-    const currentRevision = revision
-    const csrf = auth.value.csrf_token
-    try {
-      await api.logout(csrf)
-      if (currentRevision === revision) clear()
-    } catch (error) {
-      // 403 不代表退出成功；迟到的旧请求也不能清掉新会话。
-      if (currentRevision === revision && error instanceof ApiError && error.status === 401) {
-        clear('expired')
+  function logout(): Promise<void> {
+    return serializeAuth(async () => {
+      if (!auth.value) throw new ApiError(401, 'unauthenticated', '登录已失效', '')
+      const currentRevision = revision
+      const csrf = auth.value.csrf_token
+      try {
+        await api.logout(csrf)
+        if (currentRevision === revision) clear()
+      } catch (error) {
+        // 403 不代表退出成功；认证写串行后仍用 revision 防止其它本地清理改变归属。
+        if (currentRevision === revision && error instanceof ApiError && error.status === 401) {
+          clear('expired')
+        }
+        throw error
       }
-      throw error
-    }
+    })
   }
 
   async function protect<T>(action: (csrf: string) => Promise<T>): Promise<T> {

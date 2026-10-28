@@ -70,7 +70,7 @@
       "key": "R-S",
       "kind": "confirmed-ui-spec",
       "path": "fp-docs/changes/beauty-intelligence-mvp/design/frontend.md",
-      "sha256": "adedd46dc66be8f4384f1afba936ae9601a8f19acd62e26c6b6ec623bedc48fd",
+      "sha256": "e4f9c5c6aae0a2ba4df88416e2a8613ca933d8891a70f389effe8bf56af8b340",
       "regions": ["login", "sourceStatus", "titleOnlyDrawer", "responsive", "visualChecks"],
       "usage": "新增画面依照已确认设计和原型原子控件独立复核，不生成虚构逐像素参考。"
     },

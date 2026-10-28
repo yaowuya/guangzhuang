@@ -60,7 +60,7 @@ def test_rdf_dc_date_and_malicious_rows(entry_factory):
     assert [(headline.title, headline.reported_date) for headline in batch.headlines] == [
         ("RDF title", date(2026, 2, 3)),
     ]
-    assert batch.skipped == {"invalid_url": 1, "missing_title": 1}
+    assert batch.skipped == {"unsafe_url": 1, "missing_title": 1}
 
 
 @pytest.mark.parametrize("raw", [
@@ -136,7 +136,7 @@ def test_public_list_skips_bad_rows_without_leaving_container(entry_factory):
       <li class='news'><a class='title' href='/valid'>Valid</a></li></ul>"""
     batch = parse_list(raw, entry)
     assert [headline.title for headline in batch.headlines] == ["Valid"]
-    assert batch.skipped == {"invalid_url": 1, "missing_title": 1, "missing_url": 1}
+    assert batch.skipped == {"unsafe_url": 1, "missing_title": 1, "missing_url": 1}
 
 
 def test_valid_empty_channel_is_zero_not_parse_failure(entry_factory):

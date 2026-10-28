@@ -21,6 +21,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isPositiveId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
 /** DOMException 可来自另一个 JS realm；按名称保留用户取消，不按 Error instanceof 判断。 */
 function isAbort(error: unknown): boolean {
   return isRecord(error) && error.name === 'AbortError'
@@ -34,16 +46,26 @@ function validId(id: number): number {
 }
 
 function confirmedArticle(value: unknown): value is ArticleOut {
-  return isRecord(value) && Number.isSafeInteger(value.id) &&
-    typeof value.title === 'string' && typeof value.original_url === 'string' &&
-    isRecord(value.source) && typeof value.source.name === 'string' &&
-    typeof value.bookmarked === 'boolean'
+  if (!isRecord(value) || !isPositiveId(value.id) || typeof value.title !== 'string' ||
+    typeof value.original_url !== 'string' || !value.original_url || !isRecord(value.source) ||
+    !isPositiveId(value.source.id) || typeof value.source.key !== 'string' || !value.source.key ||
+    typeof value.source.name !== 'string' || !value.source.name ||
+    !isNullableString(value.source.language) || !isNullableString(value.reported_date) ||
+    !Array.isArray(value.category_codes) || !isNullableString(value.region) ||
+    !isNullableString(value.product_type) || !isNullableString(value.image_url) ||
+    !isNullableString(value.image_credit) || typeof value.updated_at !== 'string' ||
+    !value.updated_at || typeof value.bookmarked !== 'boolean') return false
+  const categories = value.category_codes
+  return categories.every((code) => CATEGORY_CODES.includes(code as typeof CATEGORY_CODES[number])) &&
+    new Set(categories).size === categories.length &&
+    categories.join(',') === CATEGORY_CODES.filter((code) => categories.includes(code)).join(',')
 }
 
 /** 列表中每项的收藏状态必须由服务器确认，不能由当前页面猜测。 */
 function confirmedPage(page: ArticlePage, bookmarkedOnly: boolean): ArticlePage {
-  if (!Array.isArray(page.items) || !Number.isSafeInteger(page.total) ||
-    !Number.isSafeInteger(page.page) || !Number.isSafeInteger(page.page_size) ||
+  if (!Array.isArray(page.items) || !isNonNegativeInteger(page.total) ||
+    !isPositiveId(page.page) || !isPositiveId(page.page_size) || page.page_size > 100 ||
+    page.items.length > page.page_size || page.total < page.items.length ||
     !page.items.every((item) => confirmedArticle(item) && (!bookmarkedOnly || item.bookmarked))) {
     throw new ApiError(200, 'invalid_response', '资讯列表不可读取', '')
   }
@@ -51,13 +73,28 @@ function confirmedPage(page: ArticlePage, bookmarkedOnly: boolean): ArticlePage 
 }
 
 function confirmedJob(value: unknown): value is JobOut {
+  const triggers = ['schedule', 'catchup', 'refresh', 'retry']
   const states = ['pending', 'running', 'succeeded', 'partial', 'failed', 'interrupted']
   const entryStates = ['pending', 'running', 'succeeded', 'failed', 'interrupted']
-  return isRecord(value) && Number.isSafeInteger(value.id) &&
-    states.includes(value.state as string) && Array.isArray(value.entries) &&
-    value.entries.every((entry: unknown) => isRecord(entry) &&
-      Number.isSafeInteger(entry.entry_id) && entryStates.includes(entry.state as string)) &&
-    Number.isSafeInteger(value.count_added) && Number.isSafeInteger(value.count_updated)
+  if (!isRecord(value) || !isPositiveId(value.id) || !triggers.includes(value.trigger as string) ||
+    !states.includes(value.state as string) || !isNullableString(value.schedule_date) ||
+    typeof value.created_at !== 'string' || !value.created_at ||
+    !isNullableString(value.started_at) || !isNullableString(value.finished_at) ||
+    !isNonNegativeInteger(value.count_added) || !isNonNegativeInteger(value.count_updated) ||
+    !Array.isArray(value.entries)) return false
+  let added = 0
+  let updated = 0
+  for (const entry of value.entries) {
+    if (!isRecord(entry) || !isPositiveId(entry.entry_id) || !isPositiveId(entry.source_id) ||
+      typeof entry.source_name !== 'string' || !entry.source_name ||
+      typeof entry.entry_url !== 'string' || !entry.entry_url ||
+      !entryStates.includes(entry.state as string) || !isNonNegativeInteger(entry.count_added) ||
+      !isNonNegativeInteger(entry.count_updated) || !isNullableString(entry.error) ||
+      !isNullableString(entry.finished_at)) return false
+    added += entry.count_added
+    updated += entry.count_updated
+  }
+  return added === value.count_added && updated === value.count_updated
 }
 
 function confirmedEnqueue(value: EnqueueOut): EnqueueOut {
@@ -145,8 +182,13 @@ export function createApi(fetcher: typeof fetch = globalThis.fetch) {
       }
       return result
     },
-    logout(csrf: string): Promise<{ authenticated: false }> {
-      return request<{ authenticated: false }>('/api/auth/logout', 'POST', { data: {}, csrf })
+    async logout(csrf: string): Promise<{ authenticated: false }> {
+      const result = await request<{ authenticated: false }>('/api/auth/logout', 'POST', { data: {}, csrf })
+      // HTTP 2xx 只说明传输成功；必须由服务端明确确认撤销，页面才能清除内存会话。
+      if (result.authenticated !== false) {
+        throw new ApiError(200, 'invalid_response', '退出状态尚未确认', '')
+      }
+      return result
     },
     async listArticles(query: ArticleQuery = {}, signal?: AbortSignal): Promise<ArticlePage> {
       const page = await request<ArticlePage>(`/api/articles${params(query)}`, 'GET', { signal })
@@ -165,7 +207,7 @@ export function createApi(fetcher: typeof fetch = globalThis.fetch) {
       if (result.uncategorized_value !== '__uncategorized__' || result.unknown_value !== '__unknown__' ||
         !validOptions(result.categories) || !validOptions(result.regions) ||
         !validOptions(result.product_types) ||
-        !CATEGORY_CODES.every((code) => result.categories.some((option) => option.value === code))) {
+        result.categories.map((option) => option.value).join(',') !== CATEGORY_CODES.join(',')) {
         throw new ApiError(200, 'invalid_response', '筛选选项不可读取', '')
       }
       return result
@@ -190,14 +232,21 @@ export function createApi(fetcher: typeof fetch = globalThis.fetch) {
       const result = await request<{ items: SourceOut[] }>('/api/sources', 'GET', { signal })
       const entryStates = ['pending', 'allowed', 'restricted']
       const siteStates = [...entryStates, 'partial']
+      const entryKinds = ['rss', 'public_list']
       if (!Array.isArray(result.items) || !result.items.every((source) =>
-        isRecord(source) && Number.isSafeInteger(source.id) &&
-        typeof source.key === 'string' && typeof source.name === 'string' &&
+        isRecord(source) && isPositiveId(source.id) &&
+        typeof source.key === 'string' && !!source.key &&
+        typeof source.name === 'string' && !!source.name &&
+        isNullableString(source.language) && isNullableString(source.reason) &&
         siteStates.includes(source.verification_status as string) &&
         Array.isArray(source.entries) && source.entries.every((entry: unknown) =>
-          isRecord(entry) && Number.isSafeInteger(entry.id) &&
+          isRecord(entry) && isPositiveId(entry.id) &&
+          typeof entry.url === 'string' && !!entry.url && entryKinds.includes(entry.kind as string) &&
           entryStates.includes(entry.verification_status as string) &&
-          typeof entry.enabled === 'boolean'))) {
+          isNullableString(entry.verification_reason) &&
+          isNullableString(entry.verification_reference) &&
+          typeof entry.enabled === 'boolean' && isNullableString(entry.last_success_at) &&
+          isNullableString(entry.last_error)))) {
         throw new ApiError(200, 'invalid_response', '来源状态不可读取', '')
       }
       return result.items

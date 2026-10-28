@@ -95,6 +95,26 @@ class IngestResult:
     skipped: dict[str, int]
 
 
+_SKIP_LABELS = {
+    "missing_title": "缺少标题",
+    "missing_url": "缺少链接",
+    "unsafe_url": "链接不安全",
+    "field_too_long": "字段超长",
+    "invalid_date": "日期无效但标题已保留",
+}
+
+
+def _skip_summary(skipped: dict[str, int]) -> str | None:
+    """把逐条跳过计数压成有界安全文案，区分合法空feed与全无效响应。"""
+    items = [(reason, count) for reason, count in skipped.items()
+             if reason in _SKIP_LABELS and type(count) is int and count > 0]
+    if not items:
+        return None
+    total = sum(count for _, count in items)
+    details = "、".join(f"{_SKIP_LABELS[reason]} {count}" for reason, count in sorted(items))
+    return f"跳过 {total} 条：{details}"[:500]
+
+
 def safe_error(error: Exception) -> str:
     """把内部失败缩减为可展示短说明；不包含原始响应、SQL、URL凭据或异常栈。"""
     if isinstance(error, ApiError):
@@ -150,7 +170,8 @@ def ingest_entry(
         }:
             batch = parse_rss(fetched.body, runtime)
         elif runtime.kind == "public_list" and fetched.media_type in {"text/html", "application/xhtml+xml"}:
-            batch = parse_list(fetched.body, runtime)
+            # SafeClient 已逐跳验证 final_url；相对标题/图片链接必须以最终列表目录为基准。
+            batch = parse_list(fetched.body, replace(runtime, url=fetched.final_url))
         else:
             raise ParseError("入口响应类型与固定解析分支不匹配")
         added = updated = 0
@@ -182,7 +203,7 @@ def ingest_entry(
             entry_result.state = "succeeded"
             entry_result.count_added = added
             entry_result.count_updated = updated
-            entry_result.error = None
+            entry_result.error = _skip_summary(batch.skipped)
             entry_result.finished_at = now
         db.commit()
         return IngestResult(added=added, updated=updated, skipped=dict(batch.skipped))

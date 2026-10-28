@@ -1,6 +1,7 @@
 """持久更新任务入队、并发复用与重试候选测试。"""
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,13 @@ from app.sources import apply_verification, eligible_entries, load_registry, see
 
 def approve_entries(db, settings, now, keys=("prtimes-rss",)):
     """用合成证据批准固定入口；不执行网络或创建真实许可文件。"""
-    settings.source_config.write_text(Path("config/sources.json").read_text(encoding="utf-8"), encoding="utf-8")
+    registry = json.loads(Path("config/sources.json").read_text(encoding="utf-8"))
+    for item in registry:
+        if item["key"] in keys and item["kind"] == "public_list":
+            item["selection"] = {
+                "container": "main", "item": "article", "title": "h2", "link": "a",
+            }
+    settings.source_config.write_text(json.dumps(registry), encoding="utf-8")
     db.info["source_config"] = settings.source_config
     specs = load_registry(settings.source_config)
     seed_sources(db, specs)
@@ -26,6 +33,7 @@ def approve_entries(db, settings, now, keys=("prtimes-rss",)):
             "entry_key": key, "verification_status": "allowed",
             "verification_reason": "UNIT_ONLY 许可", "verification_reference": "unit-reference",
             "automation_allowed": True, "title_storage_allowed": True,
+            "selection": spec.selection,
         }, {
             "attempted": True, "succeeded": True, "checked_at": now.isoformat(),
             "title_count": 1, "final_url": spec.url, "error": None,

@@ -71,6 +71,16 @@ def test_bookmark_list_is_server_sorted_by_collection_time(db, article_factory, 
     assert all(item.bookmarked for item in list_articles(db, ArticleQuery(), bookmarked_only=True).items)
 
 
+def test_unknown_dynamic_filter_values_are_rejected_not_silently_empty(db, article_factory):
+    """手改URL的未知地区/品类由服务器400解释，真实已返回选项仍可产生空交集。"""
+    article_factory(region="日本", product_type="护肤")
+    for query in (ArticleQuery(region="火星"), ArticleQuery(product_type="未知品类")):
+        with pytest.raises(ApiError) as error:
+            list_articles(db, query)
+        assert (error.value.status, error.value.code) == (400, "invalid_filter")
+    assert list_articles(db, ArticleQuery(region="__unknown__")).total == 0
+
+
 def test_filter_options_are_fixed_categories_and_actual_nonempty_values(db, article_factory):
     """七类次序固定，地区／品类只来自已有明确值，未知值另有哨兵。"""
     article_factory(region="日本", product_type="护肤", category_codes=[])

@@ -119,9 +119,10 @@ class Session(Base):
 
     __tablename__ = "sessions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    token_digest: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    token_digest: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    __table_args__ = (UniqueConstraint("token_digest", name="uq_session_digest"),)
 
 
 class UpdateJob(Base):

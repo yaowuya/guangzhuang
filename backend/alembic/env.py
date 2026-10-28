@@ -18,6 +18,7 @@ def apply_migrations(connection):
 
 
 def configured_url():
+    """只接受显式迁移 URL，避免迁移进程读取应用凭据或隐式建库。"""
     url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     if not url:
         raise ValueError("迁移需要显式 DATABASE_URL")

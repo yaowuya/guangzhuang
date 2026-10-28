@@ -6,6 +6,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
@@ -38,6 +39,9 @@ def install_errors(app: FastAPI) -> None:
         request.state.request_id = uuid4().hex
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
+        if request.url.path.startswith("/api/"):
+            # 会话、CSRF和个人标题以服务器当前状态为准，成功响应也不得进入浏览器缓存。
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ApiError)
@@ -58,6 +62,18 @@ def install_errors(app: FastAPI) -> None:
         if error.status_code == 405:
             return _result(request, 405, "method_not_allowed", "不支持此操作")
         return _result(request, error.status_code, "http_error", "请求未完成")
+
+    @app.exception_handler(SQLAlchemyError)
+    async def storage_error(request: Request, error: SQLAlchemyError) -> JSONResponse:
+        """数据库不可读写统一返回安全503；请求依赖负责回滚并关闭会话。"""
+        request_id = getattr(request.state, "request_id", None) or uuid4().hex
+        request.state.request_id = request_id
+        logging.getLogger("beauty_intelligence.errors").error(
+            "storage_failed request_id=%s exception_type=%s",
+            request_id,
+            type(error).__name__,
+        )
+        return _result(request, 503, "storage_unavailable", "存储暂不可用")
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:

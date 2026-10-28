@@ -61,6 +61,10 @@ def _validate(headline: Headline) -> tuple[str, str]:
         raise ValueError("原文链接无效")
     if parts.username is not None or parts.password is not None:
         raise ValueError("原文链接不能包含凭据")
+    codes = tuple(headline.category_codes)
+    if (len(set(codes)) != len(codes) or any(code not in CATEGORY_CODES for code in codes)
+            or codes != tuple(code for code in CATEGORY_CODES if code in codes)):
+        raise ValueError("分类代码无效、重复或顺序错误")
     if headline.region is not None and len(headline.region) > 100:
         raise ValueError("地区字段过长")
     if headline.product_type is not None and len(headline.product_type) > 100:
@@ -121,10 +125,18 @@ def upsert_headline(db: Session, headline: Headline, now: datetime) -> WriteResu
     if article.original_url != original:
         changes["original_url"] = original
     # 未披露值不能擦除已有可靠元信息；空分类表示未知，不能覆盖已分类结果。
-    for field in ("reported_date", "region", "product_type", "image_url", "image_credit"):
+    for field in ("reported_date", "region", "product_type"):
         incoming = getattr(headline, field)
         if incoming is not None and incoming != getattr(article, field):
             changes[field] = incoming
+    # 图片 URL 与署名属于同一批证据；换图时旧署名不可继续附着到新图。
+    if headline.first_entry_id == article.first_entry_id and headline.image_url is not None:
+        if headline.image_url != article.image_url:
+            changes["image_url"] = headline.image_url
+            if headline.image_credit != article.image_credit:
+                changes["image_credit"] = headline.image_credit
+        elif headline.image_credit is not None and headline.image_credit != article.image_credit:
+            changes["image_credit"] = headline.image_credit
     if headline.category_codes and list(headline.category_codes) != article.category_codes:
         changes["category_codes"] = list(headline.category_codes)
     if changes:
@@ -160,6 +172,8 @@ class ArticleQuery:
 
 
 class SourceRef(BaseModel):
+    """资讯响应中的稳定来源身份，不携带入口许可或运行详情。"""
+
     id: int
     key: str
     name: str
@@ -167,6 +181,8 @@ class SourceRef(BaseModel):
 
 
 class ArticleOut(BaseModel):
+    """浏览器可读取的标题白名单 DTO；不包含正文、摘要或内部去重字段。"""
+
     id: int
     title: str
     source: SourceRef
@@ -182,6 +198,8 @@ class ArticleOut(BaseModel):
 
 
 class ArticlePage(BaseModel):
+    """服务端页码结果；不承诺跨后台更新的查询快照。"""
+
     items: list[ArticleOut]
     total: int
     page: int
@@ -189,11 +207,15 @@ class ArticlePage(BaseModel):
 
 
 class FilterOption(BaseModel):
+    """筛选值及其显示标签；动态值来自数据库中的明确元信息。"""
+
     value: str
     label: str
 
 
 class FiltersOut(BaseModel):
+    """固定七类、动态地区/品类及缺值哨兵的筛选契约。"""
+
     categories: list[FilterOption]
     regions: list[FilterOption]
     product_types: list[FilterOption]
@@ -255,6 +277,17 @@ def parse_query(mapping) -> ArticleQuery:
         raise ApiError("invalid_filter", "筛选条件无效", 400) from None
 
 
+def _validate_dynamic_filters(db: Session, query: ArticleQuery) -> None:
+    """动态地区/品类只能消费 filters 已返回值；手改未知深链明确返回 invalid_filter。"""
+    for field in ("region", "product_type"):
+        value = getattr(query, field)
+        if not value or value == "__unknown__":
+            continue
+        column = getattr(Article, field)
+        if not db.scalar(select(exists().where(column == value))):
+            raise ApiError("invalid_filter", "筛选条件无效", 400)
+
+
 def _conditions(query: ArticleQuery):
     conditions = []
     if query.q:
@@ -299,6 +332,7 @@ def article_out(db: Session, article: Article, bookmarked: bool | None = None) -
 
 def list_articles(db: Session, query: ArticleQuery, bookmarked_only: bool = False) -> ArticlePage:
     """同一筛选计算总数和当前页；数据变化时页码可位移，不承诺跨请求快照。"""
+    _validate_dynamic_filters(db, query)
     marked = exists(select(Bookmark.article_id).where(Bookmark.article_id == Article.id).correlate(Article))
     statement = select(Article, marked.label("bookmarked"))
     if bookmarked_only:

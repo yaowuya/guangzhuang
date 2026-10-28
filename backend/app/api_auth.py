@@ -80,6 +80,17 @@ def _boundary_error(status: int, code: str, message: str) -> JSONResponse:
     )
 
 
+async def _limited_body(request: Request, limit: int) -> bytes | None:
+    """逐chunk读取未认证请求，超过上限立即停止；缓存合规正文供FastAPI后续解析。"""
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            return None
+    request._body = bytes(body)
+    return request._body
+
+
 def install_login_boundary(app: FastAPI) -> None:
     """在首登 JSON 解析前限制来源、媒体类型和请求大小；不要求旧会话。"""
 
@@ -99,8 +110,8 @@ def install_login_boundary(app: FastAPI) -> None:
                         return _boundary_error(413, "request_too_large", "登录请求过大")
                 except ValueError:
                     return _boundary_error(400, "bad_request", "请求格式无效")
-            body = await request.body()
-            if len(body) > 16 * 1024:
+            body = await _limited_body(request, 16 * 1024)
+            if body is None:
                 return _boundary_error(413, "request_too_large", "登录请求过大")
         return await call_next(request)
 

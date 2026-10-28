@@ -166,10 +166,10 @@ def parse_rss(raw: bytes, entry) -> ParseBatch:
             skipped["missing_url"] += 1
             continue
         if len(title) > 1000:
-            skipped["invalid_title"] += 1
+            skipped["field_too_long"] += 1
             continue
         if not _valid_article_url(link):
-            skipped["invalid_url"] += 1
+            skipped["unsafe_url"] += 1
             continue
         reported_date, invalid_date = _reported_date(row)
         if invalid_date:
@@ -274,11 +274,11 @@ def parse_list(raw: bytes, entry) -> ParseBatch:
             skipped["missing_url"] += 1
             continue
         if len(title) > 1000:
-            skipped["invalid_title"] += 1
+            skipped["field_too_long"] += 1
             continue
         link = urljoin(entry.url, href.strip())
         if not _valid_article_url(link):
-            skipped["invalid_url"] += 1
+            skipped["unsafe_url"] += 1
             continue
         try:
             raw_date = _selected_text(item, selection.date)

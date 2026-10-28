@@ -22,15 +22,21 @@ class RefreshIn(BaseModel):
 
 
 class EmptyIn(BaseModel):
+    """重试写接口只接受空 JSON 对象，拒绝客户端指定入口或状态。"""
+
     model_config = ConfigDict(extra="forbid")
 
 
 class EnqueueOut(BaseModel):
+    """任务入队确认，区分新建与复用已有活动任务。"""
+
     job: JobOut
     reused: bool
 
 
 class CurrentJobOut(BaseModel):
+    """当前或最近任务容器；从未创建任务时明确返回 null。"""
+
     job: JobOut | None
 
 

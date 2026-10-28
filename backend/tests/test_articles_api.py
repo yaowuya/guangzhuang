@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from sqlalchemy.exc import OperationalError
+
 
 def test_article_contract_and_filters(user_client, article_factory):
     """列表和详情只返回标题元信息、空值与服务端收藏标记。"""
@@ -24,6 +26,19 @@ def test_article_contract_and_filters(user_client, article_factory):
     options = user_client.get("/api/filters").json()
     assert len(options["categories"]) == 7
     assert options["uncategorized_value"] == "__uncategorized__"
+
+
+def test_storage_errors_use_safe_service_unavailable_envelope(user_client, monkeypatch):
+    """代表性读取发生SQLite错误时统一503，不泄露SQL或降级为未知500。"""
+    from app import api_articles
+
+    def locked_storage(*args, **kwargs):
+        raise OperationalError("SELECT PRIVATE_SQL_SENTINEL", {}, RuntimeError("locked"))
+
+    monkeypatch.setattr(api_articles, "list_articles", locked_storage)
+    response = user_client.get("/api/articles")
+    assert (response.status_code, response.json()["code"]) == (503, "storage_unavailable")
+    assert "PRIVATE_SQL_SENTINEL" not in response.text
 
 
 def test_reading_routes_require_session(client):

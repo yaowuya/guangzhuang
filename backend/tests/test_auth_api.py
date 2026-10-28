@@ -1,5 +1,6 @@
 """同源首登、服务端会话与业务写保护的 HTTP 接缝测试。"""
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -21,8 +22,11 @@ def test_first_login_and_write_guards(client, settings):
     cookie = response.headers["set-cookie"]
     assert all(marker in cookie for marker in ("bi_session=", "HttpOnly", "Secure", "SameSite=strict", "Path=/"))
     assert "Domain=" not in cookie
+    assert response.headers["Cache-Control"] == "no-store"
     csrf = response.json()["csrf_token"]
-    assert client.get("/api/auth/session").json()["csrf_token"] == csrf
+    session_response = client.get("/api/auth/session")
+    assert session_response.json()["csrf_token"] == csrf
+    assert session_response.headers["Cache-Control"] == "no-store"
 
     denied = client.post("/api/auth/logout", json={}, headers={"Origin": settings.public_origin})
     assert (denied.status_code, denied.json()["code"]) == (403, "csrf_invalid")
@@ -48,6 +52,38 @@ def test_login_rejects_invalid_boundaries(client, kwargs, status, code):
     assert set(response.json()) == {"code", "message", "request_id"}
     assert "unit-password" not in response.text
     assert "wrong" not in response.text
+
+
+def test_chunked_login_body_stops_at_limit_before_full_buffering(settings):
+    """无Content-Length的多chunk请求超过16KiB时立即413，不继续消费剩余载荷。"""
+    from app.main import create_app
+
+    application = create_app(settings)
+    chunks = [b'{"password":"', b'x' * 9000, b'y' * 9000, b'z' * 9000]
+    received = 0
+    sent = []
+
+    async def receive():
+        nonlocal received
+        chunk = chunks[received]
+        received += 1
+        return {"type": "http.request", "body": chunk, "more_body": received < len(chunks)}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "POST", "scheme": "https", "path": "/api/auth/login",
+        "raw_path": b"/api/auth/login", "query_string": b"", "root_path": "",
+        "headers": [(b"origin", settings.public_origin.encode()),
+                    (b"content-type", b"application/json")],
+        "client": ("203.0.113.8", 5000), "server": ("unit.example", 443),
+    }
+    asyncio.run(application(scope, receive, send))
+    response_start = next(message for message in sent if message["type"] == "http.response.start")
+    assert response_start["status"] == 413
+    assert received == 3
 
 
 def test_login_body_limit_and_rate_limit(client, settings):

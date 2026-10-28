@@ -59,6 +59,63 @@ def test_missing_values_do_not_erase_reliable_metadata_or_bookmark(db, entry_fac
     assert "unit_only 来源" in stored.search_text
 
 
+def test_image_url_and_credit_update_as_one_consistent_unit(db, entry_factory, now):
+    """图片变更但本批无署名时清除旧图署名，不能把旧归属拼到新图。"""
+    from app.models import Article
+
+    entry = entry_factory()
+    first = Headline(
+        entry.source_id, entry.id, "https://example.org/image-item", "标题",
+        image_url="https://images.example.org/old.jpg", image_credit="旧图署名",
+    )
+    result = upsert_headline(db, first, now)
+    db.commit()
+    changed = upsert_headline(db, replace(
+        first, image_url="https://images.example.org/new.jpg", image_credit=None), now)
+    db.commit()
+    stored = db.get(Article, result.article_id)
+    assert changed.updated is True
+    assert (stored.image_url, stored.image_credit) == (
+        "https://images.example.org/new.jpg", None,
+    )
+
+
+def test_only_first_entry_can_change_article_image_provenance(db, entry_factory, now):
+    """同URL的后续入口不能替换首入口图片，许可归属始终可由first_entry_id审计。"""
+    from app.models import Article
+
+    first_entry = entry_factory()
+    second_entry = entry_factory(source_id=first_entry.source_id)
+    first = Headline(
+        first_entry.source_id, first_entry.id, "https://example.org/provenance", "标题",
+        image_url="https://images.example.org/first.jpg", image_credit="首入口署名",
+    )
+    result = upsert_headline(db, first, now)
+    db.commit()
+    upsert_headline(db, Headline(
+        second_entry.source_id, second_entry.id, first.original_url, "标题更新",
+        image_url="https://images.example.org/second.jpg", image_credit="后续入口署名",
+    ), now)
+    db.commit()
+    stored = db.get(Article, result.article_id)
+    assert stored.first_entry_id == first_entry.id
+    assert (stored.image_url, stored.image_credit) == (
+        "https://images.example.org/first.jpg", "首入口署名",
+    )
+
+    empty_result = upsert_headline(db, Headline(
+        first_entry.source_id, first_entry.id, "https://example.org/provenance-empty", "无图标题",
+    ), now)
+    db.commit()
+    upsert_headline(db, Headline(
+        second_entry.source_id, second_entry.id, "https://example.org/provenance-empty", "后续有图",
+        image_url="https://images.example.org/later.jpg", image_credit="后续署名",
+    ), now)
+    db.commit()
+    empty_stored = db.get(Article, empty_result.article_id)
+    assert (empty_stored.image_url, empty_stored.image_credit) == (None, None)
+
+
 def test_different_parameters_case_and_media_remain_independent(db, entry_factory, now):
     """查询参数顺序、大小写及不同媒体链接都保持不同资讯身份。"""
     entry = entry_factory()
@@ -94,6 +151,24 @@ def test_invalid_metadata_is_rejected_before_database_write(db, entry_factory, n
     headline = Headline(entry.source_id, entry.id, "https://example.org/a", "有效标题")
     with pytest.raises(ValueError):
         upsert_headline(db, replace(headline, **changes), now)
+    assert db.scalar(select(func.count()).select_from(Article)) == 0
+
+
+@pytest.mark.parametrize("codes", [
+    ("not_real",), ("trends", "trends"),
+    ("regulation_compliance", "trends"),
+])
+def test_category_codes_are_fixed_unique_and_ordered(db, entry_factory, now, codes):
+    """公开写边界拒绝未知、重复或脱离固定七类顺序的分类数组。"""
+    from sqlalchemy import func, select
+    from app.models import Article
+
+    entry = entry_factory()
+    with pytest.raises(ValueError):
+        upsert_headline(db, Headline(
+            entry.source_id, entry.id, "https://example.org/category", "标题",
+            category_codes=codes,
+        ), now)
     assert db.scalar(select(func.count()).select_from(Article)) == 0
 
 

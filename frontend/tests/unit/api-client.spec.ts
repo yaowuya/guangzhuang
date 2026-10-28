@@ -45,6 +45,21 @@ it('does not accept an unconfirmed login result as a valid session', async () =>
   expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty('X-CSRF-Token')
 })
 
+it('does not accept an unconfirmed logout result as a revoked session', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+    JSON.stringify({ authenticated: true }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  ))
+  await expect(createApi(fetcher).logout('unit-csrf')).rejects.toMatchObject({
+    code: 'invalid_response',
+  })
+  expect(fetcher.mock.calls[0]?.[0]).toBe('/api/auth/logout')
+  expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+    method: 'POST', body: JSON.stringify({}),
+    headers: expect.objectContaining({ 'X-CSRF-Token': 'unit-csrf' }),
+  })
+})
+
 it('requires a service-confirmed bookmark flag on every list item', async () => {
   const { bookmarked: _omitted, ...item } = articleFixture()
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
@@ -52,6 +67,35 @@ it('requires a service-confirmed bookmark flag on every list item', async () => 
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   ))
   await expect(createApi(fetcher).listArticles()).rejects.toMatchObject({ code: 'invalid_response' })
+})
+
+it('rejects incomplete or negative article page fields', async () => {
+  const malformed = {
+    items: [{ id: -1, title: 'x', original_url: 'x', source: { name: 's' }, bookmarked: false }],
+    total: -1, page: 0, page_size: 0,
+  }
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+    JSON.stringify(malformed),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  ))
+  await expect(createApi(fetcher).listArticles()).rejects.toMatchObject({ code: 'invalid_response' })
+})
+
+it('rejects incomplete source and job response contracts', async () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  })
+  const source = sourceFixture()
+  const entry = {
+    entry_id: 1, source_id: 1, source_name: 'UNIT',
+    state: 'succeeded', count_added: 0, count_updated: 0, error: null, finished_at: null,
+  }
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(json({ items: [{ ...source, entries: [{ ...source.entries[0], url: undefined }] }] }))
+    .mockResolvedValueOnce(json({ job: { ...jobFixture({ count_added: -1 }), entries: [entry] }, reused: false }))
+  const api = createApi(fetcher)
+  await expect(api.listSources()).rejects.toMatchObject({ code: 'invalid_response' })
+  await expect(api.createJob('unit-csrf')).rejects.toMatchObject({ code: 'invalid_response' })
 })
 
 it('keeps site and entry verification statuses separate', async () => {

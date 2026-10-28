@@ -12,7 +12,7 @@ from app.worker import (
 )
 
 
-def test_serial_claim_and_partial_results(worker_lab, now):
+def test_serial_claim_and_partial_results(worker_lab, now, caplog):
     """两个连接只认领一次；一个成功一个失败形成partial并保留成功条目。"""
     job = worker_lab.pending_job(entries=2)
     worker_lab.succeed(0, title="A", url="https://example.org/a")
@@ -26,6 +26,10 @@ def test_serial_claim_and_partial_results(worker_lab, now):
     assert [result.state for result in job.entries] == ["succeeded", "failed"]
     assert job.entries[0].count_added == 1
     assert worker_lab.db.scalar(select(func.count()).select_from(Article)) == 1
+    failed_event = next(record for record in caplog.records if record.message == "entry_failed")
+    assert (failed_event.job_id, failed_event.entry_id, failed_event.error_type) == (
+        job.id, job.entries[1].entry_id, "FetchError",
+    )
 
 
 def test_all_failed_and_all_zero_success_are_distinct(worker_lab, now):
@@ -44,6 +48,23 @@ def test_all_failed_and_all_zero_success_are_distinct(worker_lab, now):
     worker_lab.db.refresh(zero_job)
     assert zero_job.state == "succeeded"
     assert zero_job.entries[0].count_added == zero_job.entries[0].count_updated == 0
+    assert zero_job.entries[0].error is None
+
+
+def test_invalid_rows_succeed_with_bounded_skip_summary(worker_lab, now):
+    """结构合法但条目全无效时保留succeeded，并与合法空feed用安全摘要区分。"""
+    job = worker_lab.pending_job(entries=1)
+    entry = worker_lab._entry(0)
+    worker_lab.http.reply(
+        entry.url,
+        body=b"<rss><channel><item><title>No link</title></item></channel></rss>",
+    )
+    process_job(worker_lab.db, claim_next(worker_lab.db, now),
+                worker_lab.client_factory, worker_lab.now)
+    worker_lab.db.refresh(job)
+    assert job.state == "succeeded"
+    assert job.entries[0].count_added == job.entries[0].count_updated == 0
+    assert job.entries[0].error == "跳过 1 条：缺少链接 1"
 
 
 def test_network_phase_allows_independent_database_writer(worker_lab, now):
