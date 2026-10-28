@@ -35,6 +35,7 @@ def settings(tmp_path: Path):
 @pytest.fixture
 def client(settings, db, now):
     """HTTPS 测试入口绑定同一隔离 SQLite；真实权限逻辑不替换。"""
+    from sqlalchemy.orm import Session as DatabaseSession
     from app.main import create_app
     from app.database import get_db
 
@@ -42,7 +43,13 @@ def client(settings, db, now):
     application.state.now = lambda: now
 
     def test_database():
-        yield db
+        # TestClient 在应用线程中使用自己的 Session，避免跨线程复用 fixture Session。
+        with DatabaseSession(db.bind, expire_on_commit=False) as request_db:
+            request_db.info.update(rules_config=settings.rules_config, source_config=settings.source_config)
+            try:
+                yield request_db
+            finally:
+                request_db.rollback()
 
     application.dependency_overrides[get_db] = test_database
     with TestClient(application, base_url=settings.public_origin, raise_server_exceptions=False) as test_client:

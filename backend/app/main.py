@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from .api_articles import articles_router
 from .api_auth import auth_router, install_login_boundary, mount_router
 from .auth import LoginLimiter
 from .config import Settings
@@ -20,4 +21,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_errors(app)
     install_login_boundary(app)
     mount_router(app, auth_router)
+    mount_router(app, articles_router)
     return app
