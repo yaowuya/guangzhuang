@@ -3,7 +3,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -90,3 +90,50 @@ class Bookmark(Base):
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (Index("ix_bookmark_created", created_at.desc(), article_id.desc()),)
+
+
+class UpdateJob(Base):
+    """持久更新任务；每日补跑记录本身占用次数，活动索引防止重复入队。"""
+
+    __tablename__ = "update_jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trigger: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 日程日期是 Asia/Shanghai 的自然日，与 UTC 事件时间分开保存。
+    schedule_date: Mapped[date | None] = mapped_column(Date)
+    active_key: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    entries: Mapped[list["EntryResult"]] = relationship(back_populates="job", order_by="EntryResult.id")
+    __table_args__ = (
+        CheckConstraint("active_key = 1", name="ck_job_active_key"),
+        CheckConstraint("trigger IN ('schedule','catchup','refresh','retry')", name="ck_job_trigger"),
+        CheckConstraint("state IN ('pending','running','succeeded','partial','failed','interrupted')", name="ck_job_state"),
+        CheckConstraint("trigger NOT IN ('schedule','catchup') OR schedule_date IS NOT NULL", name="ck_job_date"),
+        CheckConstraint("state IN ('pending','running') OR finished_at IS NOT NULL", name="ck_job_finished"),
+        Index("uq_active_job", active_key, unique=True, sqlite_where=text("state IN ('pending','running')")),
+        Index("uq_daily_schedule", schedule_date, unique=True, sqlite_where=text("trigger='schedule'")),
+        Index("uq_daily_catchup", schedule_date, unique=True, sqlite_where=text("trigger='catchup'")),
+    )
+
+
+class EntryResult(Base):
+    """一次任务中一个入口的结果，允许部分成功，不保留原始网页响应。"""
+
+    __tablename__ = "entry_results"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("update_jobs.id"), nullable=False)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("source_entries.id"), nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
+    count_added: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    count_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    job: Mapped[UpdateJob] = relationship(back_populates="entries")
+    __table_args__ = (
+        UniqueConstraint("job_id", "entry_id", name="uq_job_entry_result"),
+        CheckConstraint("state IN ('pending','running','succeeded','failed','interrupted')", name="ck_result_state"),
+        CheckConstraint("count_added >= 0 AND count_updated >= 0", name="ck_result_counts"),
+        CheckConstraint("state IN ('pending','running') OR finished_at IS NOT NULL", name="ck_result_finished"),
+    )

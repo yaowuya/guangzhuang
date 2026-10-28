@@ -5,6 +5,86 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
+def test_job_partial_indexes(db, job_factory):
+    """相同活动键在库层唯一，提交第二个任务失败不破坏第一个任务。"""
+    first = job_factory(trigger="refresh", state="pending")
+    with pytest.raises(IntegrityError):
+        job_factory(trigger="refresh", state="pending")
+    db.rollback()
+    assert db.get(type(first), first.id).state == "pending"
+
+
+@pytest.mark.parametrize("trigger", ["schedule", "catchup"])
+def test_daily_task_identity_remains_unique_after_completion(db, job_factory, now, trigger):
+    """结束任务释放活动键，却不能让同日自动任务重复消耗次数。"""
+    from datetime import timedelta
+
+    first = job_factory(trigger=trigger, state="interrupted")
+    with pytest.raises(IntegrityError):
+        job_factory(trigger=trigger, state="failed")
+    db.rollback()
+    later = job_factory(trigger=trigger, schedule_date=now.date() + timedelta(days=1))
+    assert later.id != first.id
+
+
+@pytest.mark.parametrize("invalid", [
+    {"active_key": 2}, {"trigger": "manual-unknown"}, {"state": "ghost"},
+    {"trigger": "schedule", "schedule_date": None},
+    {"trigger": "catchup", "schedule_date": None},
+    {"state": "interrupted", "finished_at": None},
+])
+def test_job_state_constraints(db, job_factory, invalid):
+    """日期和终态字段必须足以在进程重启后解释任务，而非只靠内存。"""
+    with pytest.raises(IntegrityError):
+        job_factory(**invalid)
+    db.rollback()
+
+
+def test_two_sessions_competing_for_active_job(db, now):
+    """两个独立连接同时入队只能提交一个活动任务。"""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from sqlalchemy import select, func
+    from sqlalchemy.orm import Session
+    from app.models import UpdateJob
+
+    barrier = Barrier(2)
+
+    def enqueue():
+        with Session(db.bind) as contender:
+            barrier.wait(timeout=10)
+            contender.add(UpdateJob(trigger="refresh", state="pending", created_at=now))
+            try:
+                contender.commit()
+                return "committed"
+            except IntegrityError:
+                contender.rollback()
+                return "rejected"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: enqueue(), range(2)))
+    assert sorted(results) == ["committed", "rejected"]
+    assert db.scalar(select(func.count()).select_from(UpdateJob)) == 1
+
+
+def test_entry_result_unique_and_nonnegative(db, job_factory):
+    """结果行不重复、不接受负计数，入口状态不使用任务聚合态 partial。"""
+    from app.models import EntryResult
+
+    job = job_factory()
+    entry_id = job.entries[0].entry_id
+    with pytest.raises(IntegrityError):
+        db.add(EntryResult(job_id=job.id, entry_id=entry_id))
+        db.commit()
+    db.rollback()
+    for changes in ({"count_added": -1}, {"state": "partial"}):
+        with pytest.raises(IntegrityError):
+            for key, value in changes.items():
+                setattr(job.entries[0], key, value)
+            db.commit()
+        db.rollback()
+
+
 def test_article_bookmark_constraints(db, article_factory):
     """标题未知日期可空，收藏引用同条目，排序索引实际存在。"""
     from sqlalchemy import inspect

@@ -90,6 +90,39 @@ def entry_factory(db):
 
 
 @pytest.fixture
+def job_factory(db, entry_factory, now):
+    """在隔离库创建持久任务及显式结果，只用于任务/恢复单元边界。"""
+    from app.models import EntryResult, UpdateJob
+
+    def create(**overrides):
+        entry_ids = overrides.pop("entry_ids", None)
+        result_states = overrides.pop("result_states", None)
+        if entry_ids is None:
+            entry_ids = [entry_factory().id for _ in (result_states or ["pending"])]
+        if result_states is None:
+            result_states = ["pending"] * len(entry_ids)
+        if len(result_states) != len(entry_ids):
+            raise ValueError("测试入口与结果数量不一致")
+        trigger = overrides.get("trigger", "refresh")
+        state = overrides.get("state", "pending")
+        values = {"trigger": trigger, "state": state, "created_at": now, "active_key": 1,
+                  "schedule_date": now.date() if trigger in {"schedule", "catchup"} else None,
+                  "started_at": now if state != "pending" else None,
+                  "finished_at": now if state not in {"pending", "running"} else None,
+                  **overrides}
+        job = UpdateJob(**values)
+        job.entries = [EntryResult(entry_id=entry_id, state=result_state,
+                                  finished_at=now if result_state not in {"pending", "running"} else None)
+                       for entry_id, result_state in zip(entry_ids, result_states, strict=True)]
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    return create
+
+
+@pytest.fixture
 def article_factory(db, entry_factory, now):
     """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
     from uuid import uuid4
