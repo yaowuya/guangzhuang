@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from .api_articles import articles_router
 from .api_auth import auth_router, install_login_boundary, mount_router
+from .api_bookmarks import bookmarks_router
 from .auth import LoginLimiter
 from .config import Settings
 from .errors import install_errors
@@ -22,4 +23,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_login_boundary(app)
     mount_router(app, auth_router)
     mount_router(app, articles_router)
+    mount_router(app, bookmarks_router)
     return app
