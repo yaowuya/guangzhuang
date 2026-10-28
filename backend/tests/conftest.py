@@ -42,3 +42,48 @@ def client(settings):
         base_url=settings.public_origin,
         raise_server_exceptions=False,
     )
+
+
+@pytest.fixture
+def db(settings):
+    """通过真正的 Alembic 升级建立每测独立库，结束后释放所有连接。"""
+    from alembic import command
+    from alembic.config import Config
+    from app.database import db_session, make_engine
+
+    engine = make_engine(settings.database_url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        with db_session(engine) as session:
+            session.info.update(rules_config=settings.rules_config, source_config=settings.source_config)
+            yield session
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def entry_factory(db):
+    """合成来源仅存在测试库；默认待核验禁用，绝非生产授权证据。"""
+    from uuid import uuid4
+    from sqlalchemy import select
+    from app.models import Source, SourceEntry
+
+    def create(**overrides):
+        if "source_id" not in overrides:
+            source = db.scalar(select(Source).where(Source.key == "unit"))
+            if source is None:
+                source = Source(key="unit", name="UNIT_ONLY 来源")
+                db.add(source)
+                db.flush()
+            overrides["source_id"] = source.id
+        values = {"url": f"https://unit.example/{uuid4().hex}", "kind": "rss", **overrides}
+        entry = SourceEntry(**values)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+
+    return create
