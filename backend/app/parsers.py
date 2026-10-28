@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 import ipaddress
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as StandardElementTree
 
+from bs4 import BeautifulSoup
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
+from soupsieve.util import SelectorSyntaxError
 
 from .articles import Headline
 
@@ -21,6 +23,22 @@ _MEDIA = "http://search.yahoo.com/mrss/"
 
 class ParseError(ValueError):
     """来源结构或安全边界无效；消息不包含原始响应。"""
+
+
+@dataclass(frozen=True)
+class ListSelection:
+    """逐入口核验后冻结的列表元信息选择器；不含正文或详情页选择器。"""
+
+    container: str
+    item: str
+    title: str
+    link: str
+    empty: str | None = None
+    date: str | None = None
+    section: str | None = None
+    image: str | None = None
+    credit: str | None = None
+    date_format: str | None = None
 
 
 @dataclass(frozen=True)
@@ -162,5 +180,124 @@ def parse_rss(raw: bytes, entry) -> ParseBatch:
             source_id=entry.source_id, first_entry_id=entry.id,
             original_url=link, title=title, reported_date=reported_date,
             image_url=image_url, image_credit=image_credit, section=section,
+        ))
+    return ParseBatch(headlines=headlines, skipped=dict(skipped))
+
+
+def _list_selection(value) -> ListSelection:
+    if isinstance(value, ListSelection):
+        selection = value
+    elif isinstance(value, dict):
+        try:
+            selection = ListSelection(**value)
+        except TypeError:
+            raise ParseError("入口列表选择器无效") from None
+    else:
+        raise ParseError("入口列表结构尚未核验")
+    required = (selection.container, selection.item, selection.title, selection.link)
+    optional = (selection.empty, selection.date, selection.section, selection.image, selection.credit)
+    if any(not isinstance(selector, str) or not selector.strip() or len(selector) > 500 for selector in required):
+        raise ParseError("入口列表选择器无效")
+    if any(selector is not None and (
+        not isinstance(selector, str) or not selector.strip() or len(selector) > 500
+    ) for selector in optional):
+        raise ParseError("入口列表选择器无效")
+    if selection.date_format is not None and (
+        not isinstance(selection.date_format, str) or not selection.date_format
+        or len(selection.date_format) > 100
+    ):
+        raise ParseError("入口日期格式无效")
+    return selection
+
+
+def _selected_text(item, selector: str | None) -> str | None:
+    if selector is None:
+        return None
+    node = item.select_one(selector)
+    if node is None:
+        return None
+    return node.get_text(" ", strip=True) or None
+
+
+def _list_reported_date(raw: str | None, date_format: str | None) -> tuple[date | None, bool]:
+    if raw is None:
+        return None, False
+    try:
+        if date_format:
+            return datetime.strptime(raw, date_format).date(), False
+        normalized = raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw
+        try:
+            return datetime.fromisoformat(normalized).date(), False
+        except ValueError:
+            return date.fromisoformat(raw), False
+    except (ValueError, TypeError, OverflowError):
+        return None, True
+
+
+def parse_list(raw: bytes, entry) -> ParseBatch:
+    """只消费已核验容器内的固定元信息选择器；从不请求链接页面或执行脚本。"""
+    if getattr(entry, "kind", None) != "public_list":
+        raise ParseError("入口类型不是公开列表")
+    if not isinstance(raw, bytes) or len(raw) > 2 * 1024 * 1024:
+        raise ParseError("列表响应类型或体积无效")
+    selection = _list_selection(getattr(entry, "selection", None))
+    try:
+        soup = BeautifulSoup(raw, "html.parser")
+        for node in soup.select("script, style, noscript, template"):
+            node.decompose()
+        containers = soup.select(selection.container)
+        if len(containers) != 1:
+            raise ParseError("入口列表容器结构已变化")
+        container = containers[0]
+        items = container.select(selection.item)
+        if not items:
+            if selection.empty and container.select_one(selection.empty) is not None:
+                return ParseBatch(headlines=[], skipped={})
+            raise ParseError("入口列表条目结构已变化")
+    except SelectorSyntaxError:
+        raise ParseError("入口列表选择器无效") from None
+
+    headlines: list[Headline] = []
+    skipped: Counter[str] = Counter()
+    for item in items:
+        try:
+            title_node = item.select_one(selection.title)
+            link_node = item.select_one(selection.link)
+            title = title_node.get_text(" ", strip=True) if title_node is not None else ""
+            href = link_node.get("href") if link_node is not None else None
+        except SelectorSyntaxError:
+            raise ParseError("入口列表选择器无效") from None
+        if not title:
+            skipped["missing_title"] += 1
+            continue
+        if not isinstance(href, str) or not href.strip():
+            skipped["missing_url"] += 1
+            continue
+        if len(title) > 1000:
+            skipped["invalid_title"] += 1
+            continue
+        link = urljoin(entry.url, href.strip())
+        if not _valid_article_url(link):
+            skipped["invalid_url"] += 1
+            continue
+        try:
+            raw_date = _selected_text(item, selection.date)
+            reported_date, invalid_date = _list_reported_date(raw_date, selection.date_format)
+            if invalid_date:
+                skipped["invalid_date"] += 1
+            section = _selected_text(item, selection.section)
+            credit = _selected_text(item, selection.credit)
+            image_url = None
+            if selection.image:
+                image_node = item.select_one(selection.image)
+                image_src = image_node.get("src") if image_node is not None else None
+                if isinstance(image_src, str) and image_src.strip():
+                    image_url = urljoin(entry.url, image_src.strip())
+        except SelectorSyntaxError:
+            raise ParseError("入口列表选择器无效") from None
+        headlines.append(Headline(
+            source_id=entry.source_id, first_entry_id=entry.id,
+            original_url=link, title=title, reported_date=reported_date,
+            image_url=image_url, image_credit=credit, section=section,
         ))
     return ParseBatch(headlines=headlines, skipped=dict(skipped))
