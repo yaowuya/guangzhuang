@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+import logging
 import os
 from pathlib import Path
 import time
@@ -182,6 +183,9 @@ def settle_interrupted(db: Session, now: datetime) -> int:
     except SQLAlchemyError:
         db.rollback()
         raise
+    logger = logging.getLogger("beauty_intelligence.worker")
+    for job in jobs:
+        logger.warning("job_interrupted", extra={"job_id": job.id})
     return len(jobs)
 
 
