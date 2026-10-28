@@ -33,15 +33,31 @@ def settings(tmp_path: Path):
 
 
 @pytest.fixture
-def client(settings):
-    """在 HTTPS 测试入口观察公开响应，不伪造业务来源。"""
+def client(settings, db, now):
+    """HTTPS 测试入口绑定同一隔离 SQLite；真实权限逻辑不替换。"""
     from app.main import create_app
+    from app.database import get_db
 
-    return TestClient(
-        create_app(settings),
-        base_url=settings.public_origin,
-        raise_server_exceptions=False,
-    )
+    application = create_app(settings)
+    application.state.now = lambda: now
+
+    def test_database():
+        yield db
+
+    application.dependency_overrides[get_db] = test_database
+    with TestClient(application, base_url=settings.public_origin, raise_server_exceptions=False) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def user_client(client, settings):
+    """通过实际登录路由取得测试 Cookie 与 CSRF，而非直接注入数据库令牌。"""
+    response = client.post("/api/auth/login", json={"password": "unit-password"},
+                           headers={"Origin": settings.public_origin})
+    assert response.status_code == 200
+    client.headers.update({"Origin": settings.public_origin,
+                           "X-CSRF-Token": response.json()["csrf_token"]})
+    return client
 
 
 @pytest.fixture
