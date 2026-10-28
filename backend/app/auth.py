@@ -4,6 +4,14 @@ from collections import deque
 from datetime import datetime, timedelta
 from ipaddress import ip_address
 from threading import Lock
+from typing import Literal
+import hashlib
+import hmac
+import secrets
+
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session as DatabaseSession
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -11,6 +19,48 @@ from fastapi import Request
 
 from .config import Settings
 from .errors import ApiError
+from .models import Session
+
+
+class AuthOut(BaseModel):
+    """当前已确认的服务器会话；CSRF 仅返回给已登录页面，不进入日志 repr。"""
+
+    authenticated: Literal[True] = True
+    expires_at: datetime
+    csrf_token: str = Field(repr=False)
+
+
+def csrf_token(raw: str, key: str) -> str:
+    """按会话令牌稳定派生 HMAC，多页面会话查询不使其它页面标记失效。"""
+    return hmac.new(key.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def issue_session(db: DatabaseSession, settings: Settings, now: datetime) -> tuple[str, AuthOut]:
+    """提交会话摘要后返回原令牌与响应；数据库永不保存原令牌或 HMAC 密钥。"""
+    raw = secrets.token_urlsafe(32)
+    expires = now + timedelta(hours=24)
+    db.add(Session(token_digest=hashlib.sha256(raw.encode()).hexdigest(),
+                   created_at=now, expires_at=expires))
+    db.commit()
+    return raw, AuthOut(expires_at=expires, csrf_token=csrf_token(raw, settings.csrf_key))
+
+
+def resolve_session(db: DatabaseSession, raw: str | None, settings: Settings, now: datetime) -> Session:
+    """每次请求查服务器记录；不存在或到期统一拒绝，不凭客户端状态续期。"""
+    if not raw or len(raw) > 256:
+        raise ApiError("unauthenticated", "请先登录", 401)
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    session = db.scalar(select(Session).where(Session.token_digest == digest))
+    if session is None or session.expires_at <= now:
+        raise ApiError("unauthenticated", "请先登录", 401)
+    return session
+
+
+def revoke_session(db: DatabaseSession, raw: str) -> None:
+    """删除摘要记录完成即时撤销；重复撤销不创建状态或恢复旧会话。"""
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    db.execute(delete(Session).where(Session.token_digest == digest))
+    db.commit()
 
 
 def verify_password(password: str, encoded: str) -> bool:
