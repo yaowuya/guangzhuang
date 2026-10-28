@@ -1,11 +1,14 @@
 """北京时间正常日程与当天有界补跑决策；次数由持久任务行证明。"""
 
 from datetime import datetime, time as clock_time, timedelta, timezone
+import logging
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .backup import daily_backup
+from .errors import ApiError
 from .jobs import EnqueueResult, enqueue
 from .models import UpdateJob
 from .sources import eligible_entries
@@ -81,6 +84,20 @@ def catchup_due(db: Session, now: datetime) -> EnqueueResult | None:
 
 
 def tick(db: Session, now: datetime) -> EnqueueResult | None:
-    """空闲worker先尝试准点schedule，再执行同日有界catchup检查。"""
+    """空闲worker先调度/补跑；无任务时执行当日在线备份，失败留待下次tick重试。"""
     scheduled = schedule_due(db, now)
-    return scheduled if scheduled is not None else catchup_due(db, now)
+    if scheduled is not None:
+        return scheduled
+    recovered = catchup_due(db, now)
+    if recovered is not None:
+        return recovered
+    backup_dir = db.info.get("backup_dir")
+    if backup_dir is None:
+        return None
+    # 释放日程查询事务后再用独立SQLite连接在线备份，避免把空闲维护变成长事务。
+    db.rollback()
+    try:
+        daily_backup(db.bind.url.database, backup_dir, now)
+    except ApiError:
+        logging.getLogger("beauty_intelligence.backup").error("backup_failed")
+    return None

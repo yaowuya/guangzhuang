@@ -200,6 +200,7 @@ def worker_loop(settings: Settings | None = None) -> None:
                     db.info.update(
                         source_config=resolved.source_config,
                         rules_config=resolved.rules_config,
+                        backup_dir=resolved.backup_dir,
                     )
                     settle_interrupted(db, datetime.now(UTC))
                     while True:
