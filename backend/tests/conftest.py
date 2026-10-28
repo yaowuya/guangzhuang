@@ -146,6 +146,78 @@ def job_factory(db, entry_factory, now):
 
 
 @pytest.fixture
+def http_lab():
+    """纯内存固定IP传输实验室；不打开 socket、不解析真实域名。"""
+
+    class FakeResponse:
+        def __init__(self, status, headers, body):
+            self.status = status
+            self.headers = {str(key).lower(): str(value) for key, value in headers.items()}
+            self.body = body
+            self.offset = 0
+            self.closed = False
+
+        def read(self, size, timeout):
+            del timeout
+            chunk = self.body[self.offset:self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+        def close(self):
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self, lab, target):
+            self.lab = lab
+            self.target = target
+            self.closed = False
+
+        def request(self, path, headers, timeout):
+            del timeout
+            assert path == self.target.path
+            url = f"https://{self.target.host}{path}"
+            self.lab.requests.append((url, dict(headers)))
+            if url not in self.lab.replies:
+                raise OSError("UNIT_ONLY no fake response")
+            status, response_headers, body = self.lab.replies[url]
+            return FakeResponse(status, response_headers, body)
+
+        def close(self):
+            self.closed = True
+
+    class Lab:
+        def __init__(self):
+            self.replies = {}
+            self.connections = []
+            self.requests = []
+            self.answers = {}
+
+        def reply(self, url, status=200, headers=None, body=b""):
+            provided = dict(headers or {})
+            lower = {key.lower() for key in provided}
+            normalized = {key: value for key, value in provided.items() if value is not None}
+            if status == 200 and "content-type" not in lower:
+                normalized["Content-Type"] = "application/rss+xml"
+            if "content-length" not in lower:
+                normalized["Content-Length"] = str(len(body))
+            self.replies[url] = (status, normalized, body)
+
+        def resolve(self, host, port):
+            assert port == 443
+            value = self.answers.get(host, ["8.8.8.8"])
+            if value and isinstance(value[0], list):
+                return value.pop(0)
+            return list(value)
+
+        def dial(self, target, timeout):
+            assert timeout > 0
+            self.connections.append(target)
+            return FakeConnection(self, target)
+
+    return Lab()
+
+
+@pytest.fixture
 def article_factory(db, entry_factory, now):
     """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
     from uuid import uuid4
