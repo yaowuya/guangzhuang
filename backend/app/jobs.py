@@ -2,13 +2,15 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Literal
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .errors import ApiError
-from .models import EntryResult, UpdateJob
+from .models import EntryResult, Source, SourceEntry, UpdateJob
 from .sources import eligible_entries
 
 
@@ -93,3 +95,60 @@ def retry_job(db: Session, job_id: int, now: datetime) -> EnqueueResult:
     if not ids:
         raise ApiError("no_retryable_entries", "没有当前可重试的入口", 409)
     return enqueue(db, "retry", ids, None, now)
+
+
+class EntryResultOut(BaseModel):
+    entry_id: int
+    source_id: int
+    source_name: str
+    entry_url: str
+    state: Literal["pending", "running", "succeeded", "failed", "interrupted"]
+    count_added: int
+    count_updated: int
+    error: str | None
+    finished_at: datetime | None
+
+
+class JobOut(BaseModel):
+    id: int
+    trigger: Literal["schedule", "catchup", "refresh", "retry"]
+    state: Literal["pending", "running", "succeeded", "partial", "failed", "interrupted"]
+    schedule_date: date | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    count_added: int
+    count_updated: int
+    entries: list[EntryResultOut]
+
+
+def job_out(db: Session, job: UpdateJob) -> JobOut:
+    """由入口结果聚合计数并补充来源身份，不混用许可或网站汇总状态。"""
+    rows = []
+    for result in job.entries:
+        entry = db.get(SourceEntry, result.entry_id)
+        source = db.get(Source, entry.source_id) if entry is not None else None
+        if entry is None or source is None:
+            raise RuntimeError("任务入口关系已损坏")
+        rows.append(EntryResultOut(
+            entry_id=entry.id, source_id=source.id, source_name=source.name,
+            entry_url=entry.url, state=result.state,
+            count_added=result.count_added, count_updated=result.count_updated,
+            error=result.error, finished_at=result.finished_at,
+        ))
+    return JobOut(
+        id=job.id, trigger=job.trigger, state=job.state,
+        schedule_date=job.schedule_date, created_at=job.created_at,
+        started_at=job.started_at, finished_at=job.finished_at,
+        count_added=sum(row.count_added for row in rows),
+        count_updated=sum(row.count_updated for row in rows),
+        entries=rows,
+    )
+
+
+def current_job(db: Session) -> JobOut | None:
+    """活动任务优先；没有活动时返回最近任务，从未创建时明确为 null。"""
+    job = _active(db)
+    if job is None:
+        job = db.scalar(select(UpdateJob).order_by(UpdateJob.created_at.desc(), UpdateJob.id.desc()))
+    return job_out(db, job) if job is not None else None
