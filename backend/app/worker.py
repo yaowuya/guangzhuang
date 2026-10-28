@@ -4,7 +4,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import logging
-import os
 from pathlib import Path
 import time
 
@@ -13,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import Settings
-from .database import db_session, make_engine
+from .database import _file_lock, application_lease, db_session, make_engine
 from .errors import ApiError
 from .ingest import ingest_entry, safe_error
 from .models import EntryResult, SourceEntry, UpdateJob
@@ -23,59 +22,9 @@ from .sources import eligible_entries
 
 
 @contextmanager
-def _file_lock(path: str | Path, *, exclusive: bool, nonblocking: bool) -> Iterator[object]:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    handle = target.open("a+b")
-    try:
-        if os.name == "nt":
-            # Windows 本地开发使用真实字节互斥；生产 Linux 分支使用下方 flock 共享/独占语义。
-            import msvcrt
-
-            handle.seek(0, os.SEEK_END)
-            if handle.tell() == 0:
-                handle.write(b"\0")
-                handle.flush()
-            handle.seek(0)
-            mode = msvcrt.LK_NBLCK if nonblocking else msvcrt.LK_LOCK
-            try:
-                msvcrt.locking(handle.fileno(), mode, 1)
-            except OSError:
-                raise RuntimeError("应用锁已被其它进程持有") from None
-            try:
-                yield handle
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-            if nonblocking:
-                operation |= fcntl.LOCK_NB
-            try:
-                fcntl.flock(handle.fileno(), operation)
-            except OSError:
-                raise RuntimeError("应用锁已被其它进程持有") from None
-            try:
-                yield handle
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    finally:
-        handle.close()
-
-
-@contextmanager
 def single_worker_lock(path: str | Path) -> Iterator[object]:
     """非阻塞独占 worker 锁；生产 Linux 使用 flock 拒绝第二实例。"""
     with _file_lock(path, exclusive=True, nonblocking=True) as handle:
-        yield handle
-
-
-@contextmanager
-def application_lease(path: str | Path, exclusive: bool = False) -> Iterator[object]:
-    """API/worker持共享租约，离线恢复持独占租约；Windows开发共享分支保守为互斥。"""
-    with _file_lock(path, exclusive=exclusive, nonblocking=exclusive) as handle:
         yield handle
 
 
