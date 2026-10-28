@@ -87,3 +87,29 @@ def entry_factory(db):
         return entry
 
     return create
+
+
+@pytest.fixture
+def article_factory(db, entry_factory, now):
+    """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
+    from uuid import uuid4
+    from app.models import Article
+
+    def create(**overrides):
+        if "first_entry_id" not in overrides:
+            entry = entry_factory()
+            overrides.setdefault("source_id", entry.source_id)
+            overrides["first_entry_id"] = entry.id
+        url = f"https://unit.example/article/{uuid4().hex}"
+        values = {
+            "original_url": url, "dedup_url": url, "title": "UNIT_ONLY 标题",
+            "search_text": "unit_only 标题", "category_codes": [], "updated_at": now,
+            **overrides,
+        }
+        article = Article(**values)
+        db.add(article)
+        db.commit()
+        db.refresh(article)
+        return article
+
+    return create

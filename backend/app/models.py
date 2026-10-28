@@ -1,8 +1,8 @@
 """标题阅读的显式持久模型；不引入审核、正文或图片存储对象。"""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -54,3 +54,39 @@ class SourceEntry(Base):
     # UTC 成功时间只在实际成功处理后更新，访问错误不能抹除许可依据。
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class Article(Base):
+    """原文链接对应的一条资讯；只保存标题元信息，不保存文章或图片。"""
+
+    __tablename__ = "articles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    first_entry_id: Mapped[int] = mapped_column(ForeignKey("source_entries.id"), nullable=False)
+    original_url: Mapped[str] = mapped_column(Text, nullable=False)
+    dedup_url: Mapped[str] = mapped_column(Text(collation="BINARY"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # 未知日期就是 NULL，不能用 updated_at 或采集时间补造。
+    reported_date: Mapped[date | None] = mapped_column(Date)
+    category_codes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    region: Mapped[str | None] = mapped_column(Text)
+    product_type: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(Text)
+    image_credit: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("dedup_url", name="uq_article_dedup_url"),
+        CheckConstraint("length(trim(title)) > 0 AND length(trim(original_url)) > 0 AND length(trim(dedup_url)) > 0", name="ck_article_identity"),
+        CheckConstraint("json_valid(category_codes) AND json_type(category_codes) = 'array'", name="ck_article_categories"),
+        Index("ix_article_reported_id", reported_date.desc(), id.desc()),
+    )
+
+
+class Bookmark(Base):
+    """单人收藏引用资讯本身；取消只删关系，条目更新不重置收藏时间。"""
+
+    __tablename__ = "bookmarks"
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (Index("ix_bookmark_created", created_at.desc(), article_id.desc()),)
