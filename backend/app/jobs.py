@@ -77,3 +77,19 @@ def enqueue_refresh(db: Session, now: datetime) -> EnqueueResult:
     if not ids:
         raise ApiError("no_enabled_sources", "没有已核验且启用的入口", 409)
     return enqueue(db, "refresh", ids, None, now)
+
+
+def retry_job(db: Session, job_id: int, now: datetime) -> EnqueueResult:
+    """保留原结果，只对失败或中断且当前仍可用的入口新建重试任务。"""
+    old = db.get(UpdateJob, job_id)
+    if old is None:
+        raise ApiError("job_not_found", "任务不存在", 404)
+    active = _active(db)
+    if active is not None:
+        return EnqueueResult(job=active, reused=True)
+    allowed = {entry.id for entry in eligible_entries(db)}
+    ids = [result.entry_id for result in old.entries
+           if result.state in {"failed", "interrupted"} and result.entry_id in allowed]
+    if not ids:
+        raise ApiError("no_retryable_entries", "没有当前可重试的入口", 409)
+    return enqueue(db, "retry", ids, None, now)

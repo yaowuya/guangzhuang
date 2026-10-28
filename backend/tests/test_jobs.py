@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.jobs import enqueue, enqueue_refresh
+from app.jobs import enqueue, enqueue_refresh, retry_job
 from app.models import EntryResult, UpdateJob
 from app.sources import apply_verification, eligible_entries, load_registry, seed_sources
 
@@ -78,6 +78,42 @@ def test_no_enabled_sources_and_active_priority(db, settings, job_factory, now):
     db.info.pop("source_config", None)
     reused = enqueue_refresh(db, now)
     assert reused.reused is True and reused.job.id == active.id
+
+
+def test_retry_only_unsuccessful_eligible_entries(db, settings, job_factory, now):
+    """重试取失败/中断与当前许可的交集，不碰原成功结果或后来禁用入口。"""
+    entries = approve_entries(db, settings, now, ("prtimes-rss", "happi-rss", "qingyan-list"))
+    old = job_factory(
+        state="partial", entry_ids=[entry.id for entry in entries],
+        result_states=["succeeded", "failed", "interrupted"],
+    )
+    old.entries[0].count_added = 3
+    entries[2].enabled = False
+    db.commit()
+    result = retry_job(db, old.id, now)
+    assert result.job.trigger == "retry"
+    assert {row.entry_id for row in result.job.entries} == {entries[1].id}
+    db.refresh(old.entries[0])
+    assert (old.entries[0].state, old.entries[0].count_added) == ("succeeded", 3)
+
+
+def test_retry_404_active_reuse_and_empty_candidates(db, settings, job_factory, now):
+    """不存在优先404；存在活动任务直接复用；无当前可重试入口409。"""
+    entries = approve_entries(db, settings, now)
+    active = job_factory(state="pending", entry_ids=[entries[0].id])
+    with pytest.raises(ApiError) as missing:
+        retry_job(db, 999999, now)
+    assert (missing.value.status, missing.value.code) == (404, "job_not_found")
+    reused = retry_job(db, active.id, now)
+    assert reused.reused is True and reused.job.id == active.id
+    active.state = "succeeded"
+    active.finished_at = now
+    active.entries[0].state = "succeeded"
+    active.entries[0].finished_at = now
+    db.commit()
+    with pytest.raises(ApiError) as empty:
+        retry_job(db, active.id, now)
+    assert (empty.value.status, empty.value.code) == (409, "no_retryable_entries")
 
 
 def test_enqueue_rolls_back_half_job_and_daily_identity_reuses_terminal(db, settings, now):
