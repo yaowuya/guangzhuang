@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Article, Source
 from app.worker import (
-    application_lease, claim_next, process_job, single_worker_lock,
+    application_lease, claim_next, process_job, settle_interrupted, single_worker_lock,
 )
 
 
@@ -67,6 +67,37 @@ def test_network_phase_allows_independent_database_writer(worker_lab, now):
     worker_lab.db.refresh(job)
     assert job.state == "succeeded"
     assert worker_lab.db.scalar(select(Source).where(Source.key == "during-network")) is not None
+
+
+def test_restart_settles_running_not_pending(db, job_factory, article_factory, now):
+    """旧running释放活动键，只改未完成结果；正常pending和既有阅读数据保持。"""
+    from app.models import Bookmark
+
+    article = article_factory()
+    db.add(Bookmark(article_id=article.id, created_at=now))
+    db.commit()
+    old = job_factory(state="running", result_states=["succeeded", "failed", "running", "pending"])
+    old.entries[0].count_added = 2
+    old.entries[1].count_updated = 1
+    old.entries[1].error = "先前失败"
+    db.commit()
+    assert settle_interrupted(db, now) == 1
+    db.refresh(old)
+    assert old.state == "interrupted" and old.finished_at == now
+    assert [result.state for result in old.entries] == [
+        "succeeded", "failed", "interrupted", "interrupted",
+    ]
+    assert old.entries[0].count_added == 2
+    assert old.entries[1].count_updated == 1
+    assert old.entries[1].error == "先前失败"
+    assert db.get(type(article), article.id) is not None
+    assert db.get(Bookmark, article.id) is not None
+
+    queued = job_factory(state="pending")
+    assert settle_interrupted(db, now) == 0
+    db.refresh(queued)
+    assert queued.state == "pending"
+    assert settle_interrupted(db, now) == 0
 
 
 def test_single_worker_and_application_locks_are_released(tmp_path):

@@ -164,6 +164,26 @@ def process_job(
     return finish_job(db, job, now_fn())
 
 
+def settle_interrupted(db: Session, now: datetime) -> int:
+    """仅在持有worker单例锁的启动阶段结算旧running；正常pending队列保持可认领。"""
+    jobs = list(db.scalars(select(UpdateJob).where(UpdateJob.state == "running").order_by(UpdateJob.id)))
+    for job in jobs:
+        db.expire(job, ["entries"])
+        for result in job.entries:
+            if result.state in {"pending", "running"}:
+                result.state = "interrupted"
+                result.finished_at = now
+                result.error = "上次更新进程中断"
+        job.state = "interrupted"
+        job.finished_at = now
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+    return len(jobs)
+
+
 def worker_loop(settings: Settings | None = None) -> None:
     """独立进程持续认领持久任务；不在 API 进程创建线程或读取浏览器状态。"""
     resolved = settings or Settings.from_environment()
@@ -176,6 +196,7 @@ def worker_loop(settings: Settings | None = None) -> None:
                         source_config=resolved.source_config,
                         rules_config=resolved.rules_config,
                     )
+                    settle_interrupted(db, datetime.now(UTC))
                     while True:
                         job = claim_next(db, datetime.now(UTC))
                         if job is None:
