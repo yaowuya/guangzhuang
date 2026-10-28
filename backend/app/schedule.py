@@ -1,6 +1,6 @@
 """北京时间正常日程与当天有界补跑决策；次数由持久任务行证明。"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as clock_time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
@@ -46,6 +46,41 @@ def schedule_due(db: Session, now: datetime) -> EnqueueResult | None:
     return None if result.reused else result
 
 
+def catchup_due(db: Session, now: datetime) -> EnqueueResult | None:
+    """当天最多一条catchup；缺日程全选，有结果只补非成功且当前仍可用的入口。"""
+    local = _local(now)
+    if local.time().replace(tzinfo=None) < clock_time(7, 30):
+        return None
+    used = db.scalar(select(UpdateJob.id).where(
+        UpdateJob.trigger == "catchup", UpdateJob.schedule_date == local.date(),
+    ).limit(1))
+    if used is not None:
+        return None
+    active = db.scalar(select(UpdateJob.id).where(
+        UpdateJob.state.in_(("pending", "running")),
+    ).limit(1))
+    if active is not None:
+        return None
+    scheduled = db.scalar(select(UpdateJob).where(
+        UpdateJob.trigger == "schedule", UpdateJob.schedule_date == local.date(),
+    ).order_by(UpdateJob.id.desc()))
+    allowed = {entry.id for entry in eligible_entries(db)}
+    if scheduled is not None and scheduled.state == "succeeded":
+        return None
+    if scheduled is None or not scheduled.entries:
+        ids = sorted(allowed)
+    else:
+        ids = sorted(
+            result.entry_id for result in scheduled.entries
+            if result.state != "succeeded" and result.entry_id in allowed
+        )
+    if not ids:
+        return None
+    result = enqueue(db, "catchup", ids, local.date(), now)
+    return None if result.reused else result
+
+
 def tick(db: Session, now: datetime) -> EnqueueResult | None:
-    """空闲 worker 的一次日程维护；catchup 在下一任务接入。"""
-    return schedule_due(db, now)
+    """空闲worker先尝试准点schedule，再执行同日有界catchup检查。"""
+    scheduled = schedule_due(db, now)
+    return scheduled if scheduled is not None else catchup_due(db, now)
