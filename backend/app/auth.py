@@ -1,0 +1,70 @@
+"""单人服务密码与会话保护；不提供注册、团队或后台管理身份。"""
+
+from collections import deque
+from datetime import datetime, timedelta
+from ipaddress import ip_address
+from threading import Lock
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+from fastapi import Request
+
+from .config import Settings
+from .errors import ApiError
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    """只验证部署提供的 Argon2id 摘要；不保存或记录原口令。"""
+    if not encoded.startswith("$argon2id$"):
+        return False
+    try:
+        return PasswordHasher().verify(encoded, password)
+    except (InvalidHashError, VerificationError):
+        return False
+
+
+class LoginLimiter:
+    """单 API 实例中的有界尝试窗口；进程重启重置，不声称永久或分布式封禁。"""
+
+    def __init__(self) -> None:
+        self._attempts: deque[datetime] = deque()
+        self._failures: dict[str, deque[datetime]] = {}
+        self._lock = Lock()
+
+    def _prune(self, now: datetime) -> None:
+        while self._attempts and self._attempts[0] <= now - timedelta(minutes=1):
+            self._attempts.popleft()
+        for address in list(self._failures):
+            failures = self._failures[address]
+            while failures and failures[0] <= now - timedelta(minutes=15):
+                failures.popleft()
+            if not failures:
+                del self._failures[address]
+
+    def check(self, client_ip: str, now: datetime) -> None:
+        """原子检查并计入全局尝试；一个地址五次失败或每分钟三十次总尝试后拒绝。"""
+        with self._lock:
+            self._prune(now)
+            if len(self._attempts) >= 30:
+                raise ApiError("rate_limited", "登录尝试过多，请稍后再试", 429)
+            self._attempts.append(now)
+            if len(self._failures.get(client_ip, ())) >= 5:
+                raise ApiError("rate_limited", "登录尝试过多，请稍后再试", 429)
+
+    def failed(self, client_ip: str, now: datetime) -> None:
+        """只记录检查过的失败尝试；成功不会删除仍在窗口内的失败记录。"""
+        with self._lock:
+            self._prune(now)
+            self._failures.setdefault(client_ip, deque()).append(now)
+
+
+def client_address(request: Request, settings: Settings) -> str:
+    """只信任精确网关连接提供的专用地址头，其它情况使用 socket peer。"""
+    peer = request.client.host if request.client else "unknown-peer"
+    if not settings.trusted_gateway_ip or peer != settings.trusted_gateway_ip:
+        return peer
+    supplied = request.headers.get("X-BI-Client-IP", "")
+    try:
+        return str(ip_address(supplied))
+    except ValueError:
+        return peer
