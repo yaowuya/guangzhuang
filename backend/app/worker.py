@@ -17,6 +17,7 @@ from .errors import ApiError
 from .ingest import ingest_entry, safe_error
 from .models import EntryResult, SourceEntry, UpdateJob
 from .safe_http import SafeClient
+from .schedule import tick
 from .sources import eligible_entries
 
 
@@ -200,7 +201,9 @@ def worker_loop(settings: Settings | None = None) -> None:
                     while True:
                         job = claim_next(db, datetime.now(UTC))
                         if job is None:
-                            time.sleep(1)
+                            scheduled = tick(db, datetime.now(UTC))
+                            if scheduled is None:
+                                time.sleep(1)
                             continue
                         process_job(db, job, SafeClient.from_spec, lambda: datetime.now(UTC))
     finally:
