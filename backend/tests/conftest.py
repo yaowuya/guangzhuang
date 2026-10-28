@@ -222,6 +222,92 @@ def http_lab():
 
 
 @pytest.fixture
+def worker_lab(db, settings, now, http_lab):
+    """真实临时SQLite、两独立Session与可控元信息网络的串行worker实验室。"""
+    from sqlalchemy.orm import Session as DatabaseSession
+    from app.jobs import enqueue
+    from app.models import SourceEntry
+    from app.sources import apply_verification, eligible_entries, load_registry, seed_sources
+
+    settings.source_config.write_text(
+        (Path(__file__).resolve().parents[1] / "config" / "sources.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    settings.rules_config.write_text(
+        (Path(__file__).resolve().parents[1] / "config" / "classification.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    db.info.update(source_config=settings.source_config, rules_config=settings.rules_config)
+    other = DatabaseSession(db.bind, expire_on_commit=False)
+    other.info.update(db.info)
+
+    class WorkerLab:
+        keys = ("prtimes-rss", "happi-rss")
+
+        def __init__(self):
+            self.db = db
+            self.other_db = other
+            self.http = http_lab
+            self._now = now
+            self.job = None
+            self.approved = set()
+
+        def _approve(self, count):
+            specs = load_registry(settings.source_config)
+            seed_sources(self.db, specs)
+            for key in self.keys[:count]:
+                if key in self.approved:
+                    continue
+                spec = next(item for item in specs if item.key == key)
+                apply_verification(self.db, {
+                    "entry_key": key, "verification_status": "allowed",
+                    "verification_reason": "UNIT_ONLY worker许可", "verification_reference": "unit-reference",
+                    "automation_allowed": True, "title_storage_allowed": True,
+                }, {
+                    "attempted": True, "succeeded": True, "checked_at": self._now.isoformat(),
+                    "title_count": 1, "final_url": spec.url, "error": None,
+                }, self._now)
+                self.approved.add(key)
+            return [entry for entry in eligible_entries(self.db)
+                    if entry.entry_key in self.keys[:count]]
+
+        def pending_job(self, entries=2):
+            approved = self._approve(entries)
+            self.job = enqueue(self.db, "refresh", [entry.id for entry in approved], None, self._now).job
+            return self.job
+
+        def _entry(self, index):
+            return self.db.get(SourceEntry, self.job.entries[index].entry_id)
+
+        def succeed(self, index, title="A", url="https://example.org/a"):
+            entry = self._entry(index)
+            self.http.reply(entry.url, body=(
+                f"<rss><channel><item><title>{title}</title><link>{url}</link></item></channel></rss>"
+            ).encode())
+
+        def zero(self, index):
+            entry = self._entry(index)
+            self.http.reply(entry.url, body=b"<rss><channel></channel></rss>")
+
+        def fail(self, index, code="source_unavailable"):
+            del code
+            entry = self._entry(index)
+            self.http.reply(entry.url, status=503)
+
+        def client_factory(self, entry):
+            return self.http.client_for(entry)
+
+        def now(self):
+            return self._now
+
+    lab = WorkerLab()
+    try:
+        yield lab
+    finally:
+        other.close()
+
+
+@pytest.fixture
 def article_factory(db, entry_factory, now):
     """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
     from uuid import uuid4

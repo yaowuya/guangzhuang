@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .articles import upsert_headline
 from .classification import classify, load_rules
 from .errors import ApiError
-from .models import EntryResult
+from .models import EntryResult, SourceEntry
 from .parsers import ParseError, parse_list, parse_rss
 from .safe_http import FetchError
 from .sources import eligible_entries
@@ -72,6 +72,21 @@ def allowed_image(url: str | None, credit: str | None, entry) -> tuple[str | Non
 
 
 @dataclass(frozen=True)
+class _RuntimeEntry:
+    """网络阶段只携固定白名单与入口身份，不保持 SQLite 事务或 ORM 懒加载。"""
+
+    id: int
+    source_id: int
+    url: str
+    kind: str
+    entry_key: str
+    allowed_hosts: tuple[str, ...]
+    image_hosts: tuple[str, ...]
+    image_allowed: bool
+    selection: object | None
+
+
+@dataclass(frozen=True)
 class IngestResult:
     """一次入口事务的实际新增、更新和逐条跳过计数。"""
 
@@ -111,32 +126,38 @@ def ingest_entry(
         eligible = {candidate.id: candidate for candidate in eligible_entries(db)}
         if entry.id not in eligible:
             raise ApiError("source_not_enabled", "入口未经核验或未启用", 409)
-        # eligible_entries 给同一 ORM 身份绑定固定运行参数；网络阶段尚未取得写锁。
-        entry = eligible[entry.id]
-        entry_result = None
+        bound = eligible[entry.id]
+        runtime = _RuntimeEntry(
+            id=bound.id, source_id=bound.source_id, url=bound.url, kind=bound.kind,
+            entry_key=bound.entry_key, allowed_hosts=tuple(bound.allowed_hosts),
+            image_hosts=tuple(bound.image_hosts), image_allowed=bound.image_allowed,
+            selection=bound.selection,
+        )
         if result_id is not None:
-            entry_result = db.get(EntryResult, result_id)
-            if (entry_result is None or entry_result.entry_id != entry.id
-                    or entry_result.state not in {"pending", "running"}):
+            candidate_result = db.get(EntryResult, result_id)
+            if (candidate_result is None or candidate_result.entry_id != runtime.id
+                    or candidate_result.state not in {"pending", "running"}):
                 raise ApiError("result_not_found", "入口任务结果不存在", 409)
         rules_path = db.info.get("rules_config")
         if rules_path is None:
             raise ValueError("缺少分类规则配置")
         rules = load_rules(rules_path)
-        fetched = client.fetch(entry.url)
-        if entry.kind == "rss" and fetched.media_type in {
+        # 清理许可复核产生的只读事务；网络等待期间不持有 SQLite 事务或 ORM 懒加载。
+        db.rollback()
+        fetched = client.fetch(runtime.url)
+        if runtime.kind == "rss" and fetched.media_type in {
             "application/rss+xml", "application/rdf+xml", "application/xml", "text/xml",
         }:
-            batch = parse_rss(fetched.body, entry)
-        elif entry.kind == "public_list" and fetched.media_type in {"text/html", "application/xhtml+xml"}:
-            batch = parse_list(fetched.body, entry)
+            batch = parse_rss(fetched.body, runtime)
+        elif runtime.kind == "public_list" and fetched.media_type in {"text/html", "application/xhtml+xml"}:
+            batch = parse_list(fetched.body, runtime)
         else:
             raise ParseError("入口响应类型与固定解析分支不匹配")
         added = updated = 0
         for headline in batch.headlines:
             classification = classify(headline.title, headline.section, rules)
             image_url, image_credit = allowed_image(
-                headline.image_url, headline.image_credit, entry,
+                headline.image_url, headline.image_credit, runtime,
             )
             result = upsert_headline(db, replace(
                 headline,
@@ -148,9 +169,16 @@ def ingest_entry(
             ), now)
             added += int(result.added)
             updated += int(result.updated)
-        entry.last_success_at = now
-        entry.last_error = None
-        if entry_result is not None:
+        stored_entry = db.get(SourceEntry, runtime.id)
+        if stored_entry is None:
+            raise ApiError("source_not_enabled", "入口未经核验或未启用", 409)
+        stored_entry.last_success_at = now
+        stored_entry.last_error = None
+        if result_id is not None:
+            entry_result = db.get(EntryResult, result_id)
+            if (entry_result is None or entry_result.entry_id != runtime.id
+                    or entry_result.state not in {"pending", "running"}):
+                raise ApiError("result_not_found", "入口任务结果不存在", 409)
             entry_result.state = "succeeded"
             entry_result.count_added = added
             entry_result.count_updated = updated
