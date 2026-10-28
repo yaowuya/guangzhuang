@@ -214,6 +214,10 @@ def http_lab():
             self.connections.append(target)
             return FakeConnection(self, target)
 
+        def client_for(self, entry):
+            from app.safe_http import Limits, SafeClient
+            return SafeClient(entry.allowed_hosts, self.resolve, self.dial, Limits())
+
     return Lab()
 
 
