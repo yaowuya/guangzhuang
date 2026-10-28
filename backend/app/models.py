@@ -1,9 +1,31 @@
 """标题阅读的显式持久模型；不引入审核、正文或图片存储对象。"""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+class UTCDateTime(TypeDecorator):
+    """SQLite 不保留时区：写入前转 UTC，读取后显式恢复 UTC；拒绝含糊的无时区输入。"""
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        """只接受明确时区的事件时间，存储为规范 UTC 而非本机时间。"""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("事件时间必须包含时区")
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        """将 SQLite 返回的标准化无时区时间恢复为明确 UTC。"""
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class Base(DeclarativeBase):
@@ -52,7 +74,7 @@ class SourceEntry(Base):
     verification_reference: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean(create_constraint=True, name="ck_entry_bool"), nullable=False, default=False, server_default=text("0"))
     # UTC 成功时间只在实际成功处理后更新，访问错误不能抹除许可依据。
-    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     last_error: Mapped[str | None] = mapped_column(Text)
 
 
@@ -74,7 +96,7 @@ class Article(Base):
     product_type: Mapped[str | None] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(Text)
     image_credit: Mapped[str | None] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     __table_args__ = (
         UniqueConstraint("dedup_url", name="uq_article_dedup_url"),
         CheckConstraint("length(trim(title)) > 0 AND length(trim(original_url)) > 0 AND length(trim(dedup_url)) > 0", name="ck_article_identity"),
@@ -88,8 +110,18 @@ class Bookmark(Base):
 
     __tablename__ = "bookmarks"
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     __table_args__ = (Index("ix_bookmark_created", created_at.desc(), article_id.desc()),)
+
+
+class Session(Base):
+    """服务端会话只存随机令牌摘要；删除记录即撤销，不存明文凭据。"""
+
+    __tablename__ = "sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_digest: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class UpdateJob(Base):
@@ -99,9 +131,9 @@ class UpdateJob(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trigger: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     # 日程日期是 Asia/Shanghai 的自然日，与 UTC 事件时间分开保存。
     schedule_date: Mapped[date | None] = mapped_column(Date)
     active_key: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
@@ -129,7 +161,7 @@ class EntryResult(Base):
     count_added: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     count_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     job: Mapped[UpdateJob] = relationship(back_populates="entries")
     __table_args__ = (
         UniqueConstraint("job_id", "entry_id", name="uq_job_entry_result"),

@@ -5,6 +5,56 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
+def test_full_upgrade_downgrade(tmp_path, monkeypatch):
+    """独立空库真实走完整七表迁移链，两次升降不依赖应用私密配置。"""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+    from app.database import make_engine
+
+    url = f"sqlite:///{(tmp_path / 'full.sqlite3').as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    config = Config("alembic.ini")
+    engine = make_engine(url)
+    expected = {"sources", "source_entries", "articles", "bookmarks", "update_jobs", "entry_results", "sessions"}
+    try:
+        command.upgrade(config, "head")
+        assert set(inspect(engine).get_table_names()) - {"alembic_version"} == expected
+        command.downgrade(config, "base")
+        assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
+        command.upgrade(config, "head")
+        assert set(inspect(engine).get_table_names()) - {"alembic_version"} == expected
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT json_valid('[]')")) == 1
+        for table in expected:
+            columns = {column["name"] for column in inspect(engine).get_columns(table)}
+            assert not columns & {"body", "summary", "image_bytes", "password", "raw_token"}
+    finally:
+        engine.dispose()
+
+
+def test_persisted_session_times_are_utc_and_digest_is_unique(db, now):
+    """SQLite 读回也保留明确 UTC，不拿开发机时区解释无时区值。"""
+    from datetime import UTC, timedelta, timezone
+    from app.models import Session
+
+    shifted = now.astimezone(timezone(timedelta(hours=8)))
+    session = Session(token_digest="unit-digest", created_at=shifted,
+                      expires_at=shifted + timedelta(hours=24))
+    db.add(session)
+    db.commit()
+    db.expire_all()
+    loaded = db.get(Session, session.id)
+    assert loaded.created_at == now
+    assert loaded.created_at.tzinfo is UTC
+    assert loaded.expires_at == now + timedelta(hours=24)
+    with pytest.raises(IntegrityError):
+        db.add(Session(token_digest="unit-digest", created_at=now,
+                       expires_at=now + timedelta(hours=24)))
+        db.commit()
+    db.rollback()
+
+
 def test_job_partial_indexes(db, job_factory):
     """相同活动键在库层唯一，提交第二个任务失败不破坏第一个任务。"""
     first = job_factory(trigger="refresh", state="pending")
