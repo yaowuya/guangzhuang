@@ -1,0 +1,80 @@
+[
+  {
+    "field": "category",
+    "pattern": "regulation|regulatory|compliance|法规|合规|規制|コンプライアンス|규제|법규|컴플라이언스",
+    "value": "regulation_compliance",
+    "evidence": "用户确认的法规与合规类别；仅使用标题或栏目中的明确监管词。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\bnew\\s+(?:product|products)\\b|新品|新製品|新商品|신제품",
+    "value": "new_products",
+    "evidence": "用户确认的新品发布类别；明确新品词才命中。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\btrend(?:s|ing)?\\b|趋势|趨勢|トレンド|트렌드",
+    "value": "trends",
+    "evidence": "用户确认的趋势洞察类别；明确趋势词才命中。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\bnew\\s+ingredient(?:s)?\\b|新原料|新成分|新素材|신원료|신성분",
+    "value": "new_ingredients",
+    "evidence": "用户确认的新原料类别；明确新原料或新成分词才命中。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\br\\s*&\\s*d\\b|\\bresearch\\b|\\btechnology\\b|研发技术|研发|研究技术|研究|技術|연구기술|연구|기술",
+    "value": "research_technology",
+    "evidence": "用户确认的研发技术类别；明确研发、研究或技术词才命中。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\bpackaging\\b|\\bformulation\\b|包装|包材|配方|剂型|剤型|処方|パッケージ|포장|제형|처방",
+    "value": "packaging_formulation",
+    "evidence": "用户确认的包装与剂型类别；明确包装、配方或剂型词才命中。"
+  },
+  {
+    "field": "category",
+    "pattern": "\\boem\\b|\\bodm\\b|代工|受託製造|수탁생산|위탁생산",
+    "value": "oem_odm",
+    "evidence": "用户确认的 OEM／ODM 类别；明确代工或受托生产词才命中。"
+  },
+  {
+    "field": "region",
+    "pattern": "(?:launch(?:ed|es|ing)?|available|上市|発売|출시).{0,16}(?:japan|日本|일본)|(?:japan|日本|일본).{0,16}(?:launch(?:ed|es|ing)?|available|上市|発売|출시)",
+    "value": "日本",
+    "evidence": "仅标题明确说明在日本上市、发售或可获得时标记日本市场。"
+  },
+  {
+    "field": "region",
+    "pattern": "(?:launch(?:ed|es|ing)?|available|上市|発売|출시).{0,24}(?:korea|韩国|韓国|한국)|(?:korea|韩国|韓国|한국).{0,24}(?:launch(?:ed|es|ing)?|available|上市|発売|출시)",
+    "value": "韩国",
+    "evidence": "仅标题明确说明在韩国上市、发售或可获得时标记韩国市场。"
+  },
+  {
+    "field": "product_type",
+    "pattern": "\\bskin\\s*care\\b|\\bserum\\b|护肤|精华|スキンケア|美容液|스킨케어|세럼",
+    "value": "护肤",
+    "evidence": "标题或栏目明确出现护肤、精华或 serum 时标记护肤。"
+  },
+  {
+    "field": "product_type",
+    "pattern": "\\bhair\\s*care\\b|护发|洗发|ヘアケア|헤어케어",
+    "value": "护发",
+    "evidence": "标题或栏目明确出现护发或 hair care 时标记护发。"
+  },
+  {
+    "field": "product_type",
+    "pattern": "\\bfragrance\\b|\\bperfume\\b|香水|フレグランス|香り|향수",
+    "value": "香水",
+    "evidence": "标题或栏目明确出现香水或 fragrance 时标记香水。"
+  },
+  {
+    "field": "product_type",
+    "pattern": "\\bmakeup\\b|\\bcolor\\s+cosmetics?\\b|彩妆|メイク|カラーメイク|메이크업|색조",
+    "value": "彩妆",
+    "evidence": "标题或栏目明确出现彩妆或 makeup 时标记彩妆。"
+  }
+]
