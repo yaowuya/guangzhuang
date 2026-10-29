@@ -1,0 +1,31 @@
+{
+  "name": "beauty-intelligence-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": ">=24.21.0 <25"
+  },
+  "scripts": {
+    "test:unit": "vitest run",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
+    "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
+    "check:artifact": "node scripts/check-artifact.mjs",
+    "source-check": "node scripts/check-visual-sources.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.44",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^27.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12",
+    "vue-tsc": "^3.3.13"
+  }
+}

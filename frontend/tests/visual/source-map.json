@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "override": "VS-001",
+  "approval": "D-001 与用户在 2026-10-27 明确要求：前端使用原型。",
+  "figma": null,
+  "runtimeAsReference": false,
+  "forbiddenBusinessFields": [
+    "summary",
+    "body",
+    "event_id",
+    "ingredients",
+    "efficacy",
+    "research_stage",
+    "launch_date",
+    "multi_source_event"
+  ],
+  "allowedDifferences": [
+    "标题版移除摘要、成分、研究阶段、上市信息和多来源事件区块。",
+    "真实标题长度和无图状态允许卡片自然收缩，不填充假文字或无关图片。",
+    "登录、来源状态和新详情只按已确认规则及共同原子控件对照，不声称旧稿完整逐像素覆盖。"
+  ],
+  "sourceEnvironment": {
+    "dpr": null,
+    "locale": null,
+    "note": "旧静态图未记录完整环境，不倒填；实际 current 必须另记环境和构建身份。"
+  },
+  "sources": [
+    {
+      "key": "R-P",
+      "kind": "approved-prototype",
+      "path": "fp-docs/changes/beauty-intelligence-mvp/prototype.html",
+      "sha256": "eaad55cbf304ccaa3c50d84e3f94e9e3ab1ed9354657490594236c90c1b7ed6c",
+      "regions": ["tokens", "navigation", "workspace", "cards", "controls", "drawer"],
+      "usage": "只复用已批准视觉与支持的交互；不导入原型脚本或虚构业务数据。"
+    },
+    {
+      "key": "R-D",
+      "kind": "approved-static-screenshot",
+      "path": "fp-docs/changes/beauty-intelligence-mvp/.prototype-evidence/taste/inspect/desktop-fold.jpg",
+      "sha256": "e18dbdf9a49265a71a6ca7a386455ce83c8cfaa6b0e6e88cb7d9c7765357bad0",
+      "viewport": { "width": 1440, "height": 900 },
+      "regions": {
+        "navigation": [0, 0, 224, 900],
+        "toolbar": [278, 190, 1100, 80],
+        "card": [278, 282, 728, 420]
+      }
+    },
+    {
+      "key": "R-T",
+      "kind": "approved-static-screenshot",
+      "path": "fp-docs/changes/beauty-intelligence-mvp/.prototype-evidence/taste/inspect/tablet-fold.jpg",
+      "sha256": "789ef7e1ef243ff2ef854186c07459c6f5514fed1f8b51423a00a843c3fb8f85",
+      "viewport": { "width": 768, "height": 1024 },
+      "regions": {
+        "frame": [0, 0, 768, 1024]
+      }
+    },
+    {
+      "key": "R-M",
+      "kind": "approved-static-screenshot",
+      "path": "fp-docs/changes/beauty-intelligence-mvp/.prototype-evidence/taste/inspect/mobile-fold.jpg",
+      "sha256": "61947d7ee017a1876e47dbe60601d42e458cf4dc1889b54a1face23c0cd7b260",
+      "viewport": { "width": 390, "height": 844 },
+      "regions": {
+        "searchAndFilters": [16, 166, 358, 132],
+        "card": [16, 311, 358, 511]
+      }
+    },
+    {
+      "key": "R-S",
+      "kind": "confirmed-ui-spec",
+      "path": "fp-docs/changes/beauty-intelligence-mvp/design/frontend.md",
+      "sha256": "cb2ee739dc2ad4692c5b33ca3cb5c69f9a73cdbe850216b1b8a52f8155d2d762",
+      "regions": ["login", "sourceStatus", "titleOnlyDrawer", "responsive", "visualChecks"],
+      "usage": "新增画面依照已确认设计和原型原子控件独立复核，不生成虚构逐像素参考。"
+    },
+    {
+      "key": "R-F",
+      "kind": "licensed-font-assets",
+      "license": "SIL Open Font License 1.1",
+      "files": [
+        {
+          "role": "font",
+          "path": "fp-docs/changes/beauty-intelligence-mvp/.prototype-evidence/instrument-sans.ttf",
+          "sha256": "b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1"
+        },
+        {
+          "role": "license",
+          "path": "fp-docs/changes/beauty-intelligence-mvp/.prototype-evidence/font-license.txt",
+          "sha256": "9e27a72ed30eb49a08678f6a5d6ed98ec7ba5368f541637ee0683ec9134ef966"
+        }
+      ]
+    }
+  ]
+}

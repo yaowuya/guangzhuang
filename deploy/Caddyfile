@@ -1,0 +1,46 @@
+{
+  email {$ACME_EMAIL}
+}
+
+(proxy_app) {
+  reverse_proxy api:8000 {
+    header_up -Forwarded
+    header_up -X-Forwarded-For
+    header_up -X-Real-IP
+    header_up -X-BI-Client-IP
+    header_up X-BI-Client-IP {remote_host}
+  }
+}
+
+{$DOMAIN} {
+  encode zstd gzip
+
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security "max-age=31536000"
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' https: data:; font-src 'self'"
+  }
+
+  @api path /api /api/*
+  handle @api {
+    import proxy_app
+  }
+
+  @immutable path /assets/*
+  handle @immutable {
+    header Cache-Control "public, max-age=31536000, immutable"
+    import proxy_app
+  }
+
+  handle {
+    header Cache-Control "no-cache"
+    import proxy_app
+  }
+}
+
+http://127.0.0.1:2015 {
+  respond /healthz 204
+}

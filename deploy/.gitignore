@@ -1,0 +1,13 @@
+.env
+.env.*
+!env.example
+release-images-*.json
+release-state.env
+rollback-state.env
+docker-compose.rollback.yml
+secrets/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-*
+backups/
