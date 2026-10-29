@@ -3,16 +3,16 @@
 ## Backend Framework and Source Locations
 
 - Framework: Python 3.12、FastAPI `>=0.115,<1`（当前仓库 venv 已解析 0.162.0）、Pydantic 2、SQLAlchemy 2、Alembic、SQLite。
-- Source roots: `backend/app/`；迁移 `backend/alembic/`；测试按 `backend/tests/{unit,integration}/` 分层；依赖与 pytest 配置 `backend/pyproject.toml`。
+- Source roots: 仓库根目录的 `app/`；迁移 `alembic/`；测试按 `tests/{unit,integration}/` 分层；依赖与 pytest 配置 `pyproject.toml`。
 - Module layout: `core/` 配置与异常；`domain/` 纯规则；`application/` 用例与事务；`infrastructure/` 数据库/配置/feed/HTTP 适配器；`presentation/http/` FastAPI；`runtime/` worker。
-- Stable entrypoints: `backend/app/main.py:create_app`、`python -m app.worker`、`python -m app.backup`；HTTP router 位于 `backend/app/presentation/http/`，worker 实现在 `backend/app/runtime/worker.py`。
+- Stable entrypoints: `app/main.py:create_app`、`python -m app.worker`、`python -m app.backup`；HTTP router 位于 `app/presentation/http/`，worker 实现在 `app/runtime/worker.py`。
 
 ## Code Standards
 
 - Built-in preset: `none`
 - Rule resources: N/A；当前后端不是 Django。
-- Applies to: `backend/`；FastAPI/Pydantic 2/SQLAlchemy 2，证据为 `backend/pyproject.toml` 和 `backend/app/main.py`。
-- Project rule sources: `fp-docs/settings/code-standards.md`（适用于 `backend/` 的规则）
+- Applies to: 仓库根目录的 Python 后端（`app/`、`tests/`、`alembic/`）；FastAPI/Pydantic 2/SQLAlchemy 2，证据为 `pyproject.toml` 和 `app/main.py`。
+- Project rule sources: `fp-docs/settings/code-standards.md`（适用于仓库根目录 Python 后端的规则）
 - Confirmed overrides: none
 
 ## API / Service / Data Patterns
@@ -37,7 +37,7 @@
 
 ## Backend Validation Expectations
 
-- Backend test command/pattern: 仓库 venv 中 `cd backend && python -m pytest -q`，并运行 `python -m compileall -q app tests`、`python -m pip check`；目标 Linux 镜像需重跑适用测试。
+- Backend test command/pattern: 在仓库根目录的 venv 中运行 `python -m pytest -q`、`python -m compileall -q app tests alembic` 和 `python -m pip check`；目标 Linux 镜像需重跑适用测试。
 - Data/security negative-test expectations: 覆盖 401/403/400、会话过期、并发唯一性、SSRF、固定 IP/TLS、体积/时间上限、事务回滚、中断恢复、备份/恢复和敏感信息脱敏。
 - 来源/发布: 每入口许可与运行 probe 分开；至少一个来源在目标云服务器真实更新成功前不得宣称交付。
 

@@ -52,10 +52,12 @@ def test_serves_assets_files_and_spa_without_swallowing_api(settings, tmp_path):
 def test_static_frontend_rejects_escape_and_missing_build(settings, tmp_path):
     """路径逃逸请求不能读取外部文件，缺少前端入口时应用拒绝构造。"""
     static = built_frontend(tmp_path)
+    (tmp_path / "outside.txt").write_text("outside-sentinel", encoding="utf-8")
     app = create_app(replace(settings, static_dir=static))
     with TestClient(app, base_url="https://unit.example", raise_server_exceptions=False) as client:
-        escaped = client.get("/%2e%2e/backend/pyproject.toml")
+        escaped = client.get("/%2e%2e/outside.txt")
         assert escaped.status_code == 404
+        assert "outside-sentinel" not in escaped.text
         assert "frontend-shell" not in escaped.text
 
     with pytest.raises(ValueError, match="index.html"):

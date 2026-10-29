@@ -18,7 +18,7 @@
 
 ## General Allowed / Forbidden Areas
 
-- Allowed: 在已确认任务范围内修改 `backend/`、`frontend/`、`deploy/` 及当前 change 的 FeaturePilot process artifacts。
+- Allowed: 在已确认任务范围内修改仓库根目录的后端工程（`app/`、`alembic/`、`config/`、`tests/` 与根级依赖/构建配置）、`frontend/`、`deploy/` 及当前 change 的 FeaturePilot process artifacts。
 - Forbidden: 不提交密码、Cookie、CSRF 密钥、私密配置、数据库、备份、`.venv/`、`node_modules/`、`dist/`、`.codegraph/` 或原型 local-only 资产。
 - Forbidden: 不以非 canonical `docs/mvp-development-plan.md` 驱动或证明 FeaturePilot 执行。
 

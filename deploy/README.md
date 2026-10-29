@@ -28,12 +28,12 @@ set -Eeuo pipefail
 cp deploy/env.example deploy/.env
 # 编辑 DOMAIN、ACME_EMAIL，并把 IMAGE_TAG 设为 `git rev-parse HEAD` 的完整输出。
 
-python -m venv backend/.venv
-backend/.venv/bin/pip install -e './backend'
-backend/.venv/bin/python deploy/init_secrets.py
+python -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/python deploy/init_secrets.py
 ```
 
-Windows 的最后两行可改用 `backend/.venv/Scripts/pip.exe` 和 `python.exe`。生成器以 `0700` 目录和 `0600` 临时文件原子落盘；`deploy/.env` 与 `deploy/secrets/` 已被 Git 忽略，秘密不得写入镜像层、日志或版本库。
+Windows 的最后两行改用 `.venv/Scripts/python.exe -m pip install -e .` 和 `.venv/Scripts/python.exe deploy/init_secrets.py`。生成器以 `0700` 目录和 `0600` 临时文件原子落盘；`deploy/.env` 与 `deploy/secrets/` 已被 Git 忽略，秘密不得写入镜像层、日志或版本库。
 
 ### 2. 校验配置并构建
 

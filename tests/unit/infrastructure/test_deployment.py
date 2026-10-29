@@ -12,7 +12,7 @@ from packaging.markers import default_environment
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 DEPLOY = ROOT / "deploy"
 COMPOSE = ROOT / "docker-compose.yml"
 
@@ -69,7 +69,7 @@ def test_compose_builds_one_dockerfile_and_exposes_only_gateway() -> None:
 def test_constraints_lock_covers_linux_runtime_dependency_closure() -> None:
     """Linux 运行时依赖闭包与构建后端都必须在约束中精确固定版本。"""
     constraints = {}
-    for line in (ROOT / "backend/constraints.lock").read_text(encoding="utf-8").splitlines():
+    for line in (ROOT / "constraints.lock").read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
         name, version = line.split("==", 1)
@@ -91,7 +91,7 @@ def test_constraints_lock_covers_linux_runtime_dependency_closure() -> None:
         assert constraints.get(name) == distribution.version, name
         pending.extend(Requirement(value) for value in distribution.requires or ())
 
-    build = tomllib.loads((ROOT / "backend/pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
+    build = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
     assert build == [f"setuptools=={constraints['setuptools']}"]
 
 
@@ -100,24 +100,27 @@ def test_single_dockerfile_builds_frontend_into_non_root_backend() -> None:
     dockerfiles = [path.relative_to(ROOT).as_posix() for path in ROOT.glob("**/Dockerfile")]
     assert dockerfiles == ["Dockerfile"]
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    for stage in ("frontend-builder", "backend-builder", "runtime", "gateway"):
+    for stage in ("frontend-builder", "python-builder", "runtime", "gateway"):
         assert f" AS {stage}" in dockerfile
     assert dockerfile.rfind(" AS runtime") > dockerfile.rfind(" AS gateway")
     assert "USER app:app" in dockerfile
     assert "app.main:create_app" in dockerfile
-    assert "COPY backend/app ./app" in dockerfile
+    assert "COPY app ./app" in dockerfile
+    assert "COPY pyproject.toml constraints.lock ./" in dockerfile
+    assert "COPY alembic ./alembic" in dockerfile
+    assert "COPY config ./config" in dockerfile
     assert "COPY --from=frontend-builder --chown=app:app /build/frontend/dist ./static" in dockerfile
     assert "COPY deploy/Caddyfile /etc/caddy/Caddyfile" in dockerfile
     assert "pnpm install --frozen-lockfile" in dockerfile
     assert "pnpm run check:artifact" in dockerfile
 
     root_ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
-    assert root_ignore.startswith("*\n") and "backend/*" in root_ignore and "frontend/*" in root_ignore
-    for included in ("!backend/app/**", "!frontend/src/**", "!deploy/Caddyfile"):
+    assert root_ignore.startswith("*\n") and "frontend/*" in root_ignore
+    for included in ("!app/**", "!alembic/**", "!config/**", "!pyproject.toml", "!constraints.lock", "!alembic.ini", "!frontend/src/**", "!deploy/Caddyfile"):
         assert included in root_ignore
     for excluded in ("**/__pycache__/", "**/node_modules/", "**/dist/", "**/.env"):
         assert excluded in root_ignore
-    assert not (ROOT / "backend/.dockerignore").exists()
+    assert not (ROOT / "backend").exists()
     assert not (ROOT / "frontend/.dockerignore").exists()
 
 

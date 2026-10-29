@@ -18,7 +18,7 @@ For target-state requirements, user instructions and approved active change arti
 | --- | --- | --- | --- | --- |
 | `settings/agent.md` | Lean FeaturePilot policy adapter | workflow, constraints, external-doc pointers | workflow/policy questions only | present |
 | `settings/frontend.md` | Frontend/UI/visual settings | UI implementation and visual acceptance | UI/page/prototype work only | present; Vue preset registered for `frontend/` |
-| `settings/backend.md` | Backend/API/data/security settings | backend implementation and backend acceptance | backend/API/data/security/permission work only | present; project rules registered for `backend/` |
+| `settings/backend.md` | Backend/API/data/security settings | backend implementation and backend acceptance | backend/API/data/security/permission work only | present; project rules registered for repository-root Python backend |
 | `settings/code-standards.md` | Approved project code rules | appRoot-scoped project conventions | technical work with a registered Project rule sources reference only | present; registered by frontend/backend settings |
 | `settings/prototype-style.md` | Prototype visual style reference | prototype generation consistency | prototype generation only | present |
 

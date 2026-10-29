@@ -8,22 +8,22 @@
 
 ```text
 .
-├── Dockerfile                     # 唯一多阶段构建：frontend-builder/backend-builder/runtime/gateway
+├── Dockerfile                     # 唯一多阶段构建：frontend-builder/python-builder/runtime/gateway
 ├── docker-compose.yml             # 唯一 Compose 编排入口
-├── backend/
-│   ├── app/
-│   │   ├── core/                 # 配置与跨层异常
-│   │   ├── domain/               # 纯业务值对象、分类和固定来源身份
-│   │   ├── application/          # 用例、事务、查询和任务编排
-│   │   ├── infrastructure/       # SQLAlchemy/SQLite、配置、feed 与安全 HTTP 适配器
-│   │   ├── presentation/http/    # FastAPI 组合、路由、依赖与错误映射
-│   │   ├── runtime/              # 独立 worker 进程实现
-│   │   ├── main.py               # 稳定 ASGI 入口
-│   │   ├── worker.py             # 稳定 worker 命令入口
-│   │   └── backup.py             # 稳定备份恢复命令入口
-│   ├── alembic/                  # 数据库迁移
-│   ├── config/                   # 固定来源和分类配置
-│   └── tests/                    # unit/integration 镜像测试结构
+├── pyproject.toml                 # 后端依赖与测试配置
+├── app/                           # 后端应用
+│   ├── core/                      # 配置与跨层异常
+│   ├── domain/                    # 纯业务值对象、分类和固定来源身份
+│   ├── application/               # 用例、事务、查询和任务编排
+│   ├── infrastructure/            # SQLite、配置、feed 与安全 HTTP 适配器
+│   ├── presentation/http/         # FastAPI 组合、路由、依赖与错误映射
+│   ├── runtime/                   # 独立 worker 进程实现
+│   ├── main.py                    # 稳定 ASGI 入口
+│   ├── worker.py                  # 稳定 worker 命令入口
+│   └── backup.py                  # 稳定备份恢复命令入口
+├── alembic/                       # 数据库迁移
+├── config/                        # 固定来源和分类配置
+├── tests/                         # 后端 unit/integration 测试
 ├── frontend/
 │   ├── src/app/                  # Vue 组合根、路由和运行时装配
 │   ├── src/features/             # auth/headlines 等业务特性
@@ -39,12 +39,12 @@
 ## 本地验证
 
 ```bash
-cd backend
+# 在仓库根目录，使用本项目的 Python 虚拟环境
 python -m pytest -q
 python -m compileall -q app tests alembic
 python -m pip check
 
-cd ../frontend
+cd frontend
 pnpm run test:unit
 pnpm run typecheck
 pnpm run build

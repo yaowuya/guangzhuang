@@ -2,17 +2,15 @@
 
 !Dockerfile
 
-!backend/
-backend/*
-!backend/pyproject.toml
-!backend/constraints.lock
-!backend/alembic.ini
-!backend/app/
-!backend/app/**
-!backend/alembic/
-!backend/alembic/**
-!backend/config/
-!backend/config/**
+!pyproject.toml
+!constraints.lock
+!alembic.ini
+!app/
+!app/**
+!alembic/
+!alembic/**
+!config/
+!config/**
 
 !frontend/
 frontend/*

@@ -22,12 +22,12 @@ RUN pnpm run typecheck \
     && pnpm run build \
     && pnpm run check:artifact
 
-FROM ${PYTHON_IMAGE} AS backend-builder
+FROM ${PYTHON_IMAGE} AS python-builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
-WORKDIR /build/backend
-COPY backend/pyproject.toml backend/constraints.lock ./
-COPY backend/app ./app
+WORKDIR /build/app
+COPY pyproject.toml constraints.lock ./
+COPY app ./app
 RUN python -m pip wheel --constraint constraints.lock --wheel-dir /wheels .
 
 FROM ${PYTHON_IMAGE} AS runtime
@@ -40,12 +40,12 @@ RUN apt-get update \
     && groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --create-home --home-dir /home/app app
 WORKDIR /srv/app
-COPY --from=backend-builder /wheels /wheels
+COPY --from=python-builder /wheels /wheels
 RUN python -m pip install --no-index --find-links=/wheels beauty-intelligence-api==0.1.0 \
     && rm -rf /wheels
-COPY backend/alembic.ini ./
-COPY backend/alembic ./alembic
-COPY backend/config ./config
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY config ./config
 COPY --from=frontend-builder --chown=app:app /build/frontend/dist ./static
 RUN mkdir -p /data /backups \
     && chown -R app:app /data /backups /srv/app
