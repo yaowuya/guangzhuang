@@ -4,7 +4,7 @@
 
 **Goal:** 交付单人登录、标题查找、出处导航、持久收藏和可恢复的真实来源更新。至少一个入口在目标云服务器通过许可与运行验收后，才允许宣称正式交付。
 
-**Architecture:** 单台 Linux 主机、一个 FastAPI 实例、一个独立串行 worker、SQLite 持久卷；Caddy 提供同域 HTTPS 与静态资源。数据库持有更新任务，不引入 Redis、分布式队列或搜索服务。来源、分类、收藏、调度和备份属于同一阅读闭环，不是互不相关的子系统。
+**Architecture:** 单台 Linux 主机、一个 FastAPI 实例、一个独立串行 worker、SQLite 持久卷；唯一根 Dockerfile 把 Vue dist 打包进 FastAPI runtime，Caddy 只提供同域 HTTPS 与反向代理。数据库持有更新任务，不引入 Redis、分布式队列或搜索服务。来源、分类、收藏、调度和备份属于同一阅读闭环，不是互不相关的子系统。
 
 **Tech Stack:** Python + FastAPI、SQLAlchemy 2、Alembic、SQLite、Linux Docker Compose、Caddy；与已确认设计一致。规划生成时尚无正式工程或现成测试命令；当前实现、命令和证据必须从源码、Git 与执行记录实时核对。
 
@@ -42,46 +42,52 @@
 | --- | --- | --- |
 | `backend/pyproject.toml` | create | 依赖范围、构建和 pytest 配置 |
 | `backend/.gitignore` | create | 忽略 Windows 本仓库虚拟环境、Python 缓存与本地测试数据；不改动原型或全局设置 |
-| `backend/app/__init__.py`、`backend/app/main.py` | create | 包标识与应用工厂 |
-| `backend/app/config.py`、`backend/app/errors.py` | create | 私密配置校验、错误包和 request_id |
-| `backend/app/database.py`、`backend/app/models.py` | create | SQLite 连接、七模型、约束、运行/恢复租约 |
+| `backend/app/__init__.py`、`backend/app/main.py`、`backend/app/worker.py`、`backend/app/backup.py` | create/extend | 包标识与三个稳定运行适配器，不复制实现 |
+| `backend/app/{core,domain,application,infrastructure,presentation,runtime}/__init__.py` | create | 分层包边界；依赖方向由架构测试守卫 |
+| `backend/app/core/config.py`、`backend/app/core/exceptions.py` | create/extend | 私密配置与跨层安全异常 |
+| `backend/app/presentation/http/app.py`、`backend/app/presentation/http/errors.py`、`backend/app/presentation/http/dependencies.py` | create/extend | FastAPI 组合、错误包、request_id 与请求数据库依赖 |
+| `backend/app/domain/articles.py`、`backend/app/domain/classification.py`、`backend/app/domain/sources.py` | create/extend | 纯标题、分类和固定来源身份规则 |
+| `backend/app/infrastructure/configuration.py`、`backend/app/infrastructure/feeds/parsers.py` | create/extend | 本地受控配置与 RSS/列表格式适配器 |
+| `backend/app/infrastructure/persistence/database.py`、`backend/app/infrastructure/persistence/models.py` | create/extend | SQLite 连接、七模型、约束、运行/恢复租约 |
 | `backend/alembic.ini`、`backend/alembic/env.py` | create | Alembic 数据库入口 |
 | `backend/alembic/versions/0001_sources.py` | create | 来源与入口表 |
 | `backend/alembic/versions/0002_articles.py` | create | 条目与收藏表 |
 | `backend/alembic/versions/0003_jobs.py` | create | 任务、入口结果、部分唯一索引 |
 | `backend/alembic/versions/0004_sessions.py` | create | 会话表与完整 schema 校验 |
-| `backend/app/auth.py`、`backend/app/api_auth.py` | create | 密码/限流/会话/写保护与登录路由 |
-| `backend/app/articles.py`、`backend/app/api_articles.py` | create | URL 幂等写入、查询、DTO 与阅读路由 |
-| `backend/app/classification.py`、`backend/config/classification.json` | create | 明确标题/栏目分类规则和证据 |
-| `backend/app/bookmarks.py`、`backend/app/api_bookmarks.py` | create | 收藏关系与 API |
-| `backend/app/sources.py`、`backend/app/api_sources.py` | create | 固定入口、证据校验、运行核验 CLI、只读 API |
-| `backend/config/sources.json` | create | 五站六候选入口及逐入口许可/选择器/图片条件；初始全部禁用 |
-| `backend/app/safe_http.py` | create | DNS 校验、固定地址 TLS、重定向/超时/大小预算 |
-| `backend/app/parsers.py`、`backend/app/ingest.py` | create | RSS/公开列表白名单元信息、图片过滤、单入口采集 |
-| `backend/app/jobs.py`、`backend/app/api_jobs.py` | create | 入队、重试、状态序列化与路由 |
-| `backend/app/worker.py`、`backend/app/schedule.py` | create | 独立串行消费、中断结算和北京时间日程 |
-| `backend/app/backup.py` | create | 一致性备份、轮换、独占离线恢复 CLI |
+| `backend/app/application/auth.py`、`backend/app/presentation/http/auth.py` | create/extend | 密码/限流/会话用例与登录/写保护 HTTP 适配 |
+| `backend/app/application/articles.py`、`backend/app/presentation/http/article_query.py`、`backend/app/presentation/http/articles.py` | create/extend | URL 幂等写入、查询、DTO 与阅读 HTTP 适配 |
+| `backend/app/application/bookmarks.py`、`backend/app/presentation/http/bookmarks.py` | create/extend | 收藏用例与 HTTP 适配 |
+| `backend/app/application/sources.py`、`backend/app/presentation/http/sources.py` | create/extend | 固定入口、证据应用、运行资格和只读 HTTP 适配 |
+| `backend/app/runtime/source_verification.py` | future create | 逐入口许可/probe 命令，不污染稳定应用入口 |
+| `backend/config/sources.json`、`backend/config/classification.json` | create | 五站六候选入口与明确分类规则；初始全部禁用 |
+| `backend/app/infrastructure/http/safe_client.py` | create/extend | DNS 校验、固定地址 TLS、重定向/超时/大小预算 |
+| `backend/app/application/ingestion.py` | create/extend | fetch→解析→分类→upsert→入口结果的深用例 |
+| `backend/app/application/jobs.py`、`backend/app/presentation/http/jobs.py` | create/extend | 入队、重试、状态序列化与 HTTP 适配 |
+| `backend/app/runtime/worker.py`、`backend/app/application/scheduling.py` | create/extend | 独立串行消费、中断结算和北京时间日程 |
+| `backend/app/infrastructure/persistence/backup.py` | create/extend | 一致性备份、轮换、独占离线恢复实现 |
 | `backend/tests/__init__.py`、`backend/tests/conftest.py` | create | 隔离数据库、HTTPS 测试客户端、时钟与通用 fixture |
-| `backend/tests/test_bootstrap.py`、`backend/tests/test_schema.py` | create | 应用导入与七表迁移/约束测试 |
-| `backend/tests/test_password.py`、`backend/tests/test_sessions.py`、`backend/tests/test_auth_api.py` | create | 密码、限流、会话与首登/写保护 |
-| `backend/tests/test_upsert.py`、`backend/tests/test_classification.py` | create | URL 身份、字段合并、多语种明确规则 |
-| `backend/tests/test_queries.py`、`backend/tests/test_articles_api.py` | create | 查询、分页、排序、筛选与 DTO |
-| `backend/tests/test_bookmarks.py`、`backend/tests/test_bookmarks_api.py` | create | 收藏持久化和 API |
-| `backend/tests/test_sources.py`、`backend/tests/test_safe_http.py` | create | 逐入口许可与 SSRF/请求边界 |
-| `backend/tests/test_parsers.py`、`backend/tests/test_ingest.py` | create | 内存夹具、内容排除、采集事务 |
-| `backend/tests/test_jobs.py`、`backend/tests/test_jobs_api.py` | create | 入队/重试并发和任务 JSON |
-| `backend/tests/test_worker.py`、`backend/tests/test_schedule.py` | create | 串行消费、中断、07:30 与当天一次补跑 |
-| `backend/tests/test_recovery_integration.py`、`backend/tests/test_backup.py` | create | 两连接重启、读写隔离、备份恢复 |
-| `backend/tests/test_verification.py` | create | 五站逐入口证据文件与启用一致性 |
-| `backend/tests/test_deployment.py`、`backend/tests/test_security_audit.py` | create | 部署静态契约、全路由负向与日志审计 |
+| `backend/tests/integration/api/test_bootstrap.py`、`backend/tests/integration/persistence/test_schema.py` | create | 应用导入与七表迁移/约束测试 |
+| `backend/tests/unit/application/test_password.py`、`backend/tests/integration/persistence/test_sessions.py`、`backend/tests/integration/api/test_auth_api.py` | create | 密码、限流、会话与首登/写保护 |
+| `backend/tests/integration/persistence/test_upsert.py`、`backend/tests/unit/domain/test_classification.py` | create | URL 身份、字段合并、多语种明确规则 |
+| `backend/tests/integration/persistence/test_queries.py`、`backend/tests/integration/api/test_articles_api.py` | create | 查询、分页、排序、筛选与 DTO |
+| `backend/tests/integration/persistence/test_bookmarks.py`、`backend/tests/integration/api/test_bookmarks_api.py` | create | 收藏持久化和 API |
+| `backend/tests/integration/persistence/test_sources.py`、`backend/tests/unit/infrastructure/test_safe_http.py` | create | 逐入口许可与 SSRF/请求边界 |
+| `backend/tests/unit/infrastructure/test_parsers.py`、`backend/tests/integration/persistence/test_ingest.py` | create | 内存夹具、内容排除、采集事务 |
+| `backend/tests/integration/persistence/test_jobs.py`、`backend/tests/integration/api/test_jobs_api.py` | create | 入队/重试并发和任务 JSON |
+| `backend/tests/integration/runtime/test_worker.py`、`backend/tests/integration/persistence/test_schedule.py` | create | 串行消费、中断、07:30 与当天一次补跑 |
+| `backend/tests/integration/runtime/test_recovery_integration.py`、`backend/tests/integration/persistence/test_backup.py` | create | 两连接重启、读写隔离、备份恢复 |
+| `backend/tests/integration/source_verification/test_verification.py` | create | 五站逐入口证据文件与启用一致性 |
+| `backend/tests/unit/infrastructure/test_deployment.py`、`backend/tests/integration/api/test_security_audit.py` | create | 部署静态契约、全路由负向与日志审计 |
 | `backend/tests/acceptance/__init__.py`、`backend/tests/acceptance/test_live.py` | create | 授权目标环境的真实 HTTPS/来源/调度验收 |
 | `backend/tests/acceptance/test_release.py` | create | 汇总真实证据和发布门禁，不虚构通过 |
 | `backend/verification/prtimes.json`、`backend/verification/happi.json` | create | 当前运行环境下的逐入口使用条件与 probe 证据 |
 | `backend/verification/qingyan.json`、`backend/verification/pbn.json`、`backend/verification/cosin.json` | create | 其余三站独立许可/入口结论 |
 | `backend/verification/live-source.json`、`backend/verification/live-schedule.json` | create | 真来源与真实 07:30/恢复演练结果 |
 | `backend/verification/live-restore.json`、`backend/verification/live-audit.json`、`backend/verification/release.json` | create | 恢复、安全审计和发布结论 |
-| `backend/Dockerfile`、`backend/.dockerignore` | create | 单一应用镜像，API 与 worker 复用 |
-| `deploy/compose.yaml`、`deploy/Caddyfile`、`deploy/env.example` | create | 三服务、私密挂载、HTTPS 和无公网数据库端口 |
-| `deploy/README.md` | create | 迁移、发布、回滚、停写恢复、验收与错误查看命令 |
+| `Dockerfile`、`.dockerignore`、`backend/constraints.lock` | create | 唯一根多阶段构建；Vue dist 进入非 root FastAPI runtime，同文件另产 gateway target |
+| `backend/app/presentation/http/static_frontend.py`、`backend/tests/integration/api/test_static_frontend.py` | create | 静态文件与 SPA fallback；严格保留 `/api` JSON 和方法语义 |
+| `docker-compose.yml`、`deploy/Caddyfile`、`deploy/env.example`、`deploy/.gitignore`、`deploy/compose.sh` | create | 单 Compose 编排 secrets-init/migrate/web-validate 与三常驻进程、HTTPS 和无公网后端端口 |
+| `deploy/init_secrets.py`、`deploy/README.md` | create/extend | 密钥生成、迁移、发布、回滚、停写恢复与验收命令 |
+| `README.md`、`docs/architecture.md` | create/extend | 全项目目录导航、分层依赖和稳定入口说明 |
 
 测试共用 fixture 的创建随 owner 推进：001 提供 `now`、`settings`、`client`；002 提供 `db`、`entry_factory`；003 提供 `article_factory`；004 提供 `job_factory`；008 提供 `user_client`；018 提供 `http_lab`；026 提供 `worker_lab`；033 提供 `verification_files`；041 提供 `live_env`。fixture 不读取真实来源或真实凭据，除显式 `--live` 验收。每个 fixture 的具体契约由接口账本唯一声明。

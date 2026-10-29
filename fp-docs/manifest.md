@@ -26,7 +26,7 @@ For target-state requirements, user instructions and approved active change arti
 
 | Provider | Status | Version | Index Path | Last Checked | Use As |
 | --- | --- | --- | --- | --- | --- |
-| CodeGraph | ready | 1.6.2 | `.codegraph/` | 2026-10-28T07:03:10Z | navigation-hint-only |
+| CodeGraph | ready | 1.6.2 | `.codegraph/` | 2026-10-29T03:26:09Z | navigation-hint-only |
 
 ## Prototype Bases
 
@@ -47,6 +47,9 @@ For target-state requirements, user instructions and approved active change arti
 
 | File | Priority | Notes |
 | --- | --- | --- |
+| `README.md` | current | 项目入口、目录树、验证和部署导航 |
+| `docs/architecture.md` | current | 分层单体依赖规则、深模块与测试结构 |
+| `deploy/README.md` | current | Docker Compose 首次部署、升级、备份和恢复 |
 
 ## Critical Unknowns
 

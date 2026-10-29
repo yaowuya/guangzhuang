@@ -3,8 +3,8 @@
 - [ ] **Task frontend-011: 打开出处侧栏并恢复焦点、滚动和查询上下文**
 
 **Files:**
-- Create: `frontend/src/components/DetailDrawer.vue`、`frontend/src/state/drawer.ts`、`frontend/tests/unit/detail.spec.ts`、`frontend/tests/browser/cases/detail.mjs`。
-- Extend planned: `frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/headlines/components/DetailDrawer.vue`、`frontend/src/features/headlines/drawer.ts`、`frontend/tests/unit/features/headlines/detail.spec.ts`、`frontend/tests/browser/cases/detail.mjs`。
+- Extend planned: `frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: DETAIL-D、DETAIL-M、DETAIL-FAIL 双表。
 
 **Reasoning:**
@@ -23,7 +23,7 @@
 **Step 1: Write the failing test**
 ```ts
 import { it, expect, vi } from 'vitest'
-import { useDrawer } from '../../src/state/drawer'
+import { useDrawer } from '../../../../src/features/headlines/drawer'
 
 it('restores the actual opener without scrolling to a new list', () => {
   const opener = document.createElement('button')
@@ -41,7 +41,7 @@ it('restores the actual opener without scrolling to a new list', () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/detail.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/detail.spec.ts`
 - Expected: drawer 状态缺失。dialog API 的 jsdom shim 只在 unit setup，不能带入 src/browser。
 
 **Step 3: Write minimal implementation**
@@ -68,7 +68,7 @@ it('restores the actual opener without scrolling to a new list', () => {
 | frontend-011 | DETAIL-FAIL | I12 401/404/读错、重试/取消竞态，不破坏列表 | business-flow | Visual DETAIL-FAIL route | REQUIRED | L-B；真实异常/恢复run；Mocked Core API:false；恢复环境/退出 | `.fp-execute/e2e/frontend-011/DETAIL-FAIL/coverage-matrix.md` | BLOCKED：自然404/安全故障条件未取得，不通过API/DB写替代UI |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/detail.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/detail.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in DETAIL-D DETAIL-M DETAIL-FAIL; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-011 --case "$c" --phase source || exit 1
@@ -80,15 +80,15 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/DetailDrawer.vue frontend/src/state/drawer.ts frontend/src/views/WorkspaceView.vue frontend/tests/unit/detail.spec.ts frontend/tests/browser/cases/detail.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/headlines/components/DetailDrawer.vue frontend/src/features/headlines/drawer.ts frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/features/headlines/detail.spec.ts frontend/tests/browser/cases/detail.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: add source detail drawer with stable return context"
 ```
 
 - [ ] **Task frontend-012: 安全打开原文并直连获准图片、失败只降级文字**
 
 **Files:**
-- Create: `frontend/src/components/SourceImage.vue`、`frontend/src/utils/external-url.ts`、`frontend/tests/unit/source-image.spec.ts`、`frontend/tests/browser/cases/media.mjs`。
-- Extend planned: `frontend/src/components/HeadlineCard.vue`、`frontend/src/components/DetailDrawer.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/headlines/components/SourceImage.vue`、`frontend/src/shared/security/external-url.ts`、`frontend/tests/unit/features/headlines/source-image.spec.ts`、`frontend/tests/browser/cases/media.mjs`。
+- Extend planned: `frontend/src/features/headlines/components/HeadlineCard.vue`、`frontend/src/features/headlines/components/DetailDrawer.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: MEDIA-ALLOWED、MEDIA-ABSENT、MEDIA-FAIL 双表。
 
 **Reasoning:**
@@ -123,7 +123,7 @@ it('falls back to text without rewriting the image to a local proxy', async () =
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/source-image.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/source-image.spec.ts`
 - Expected: SourceImage/safeExternalUrl 缺失。
 
 **Step 3: Write minimal implementation**
@@ -150,7 +150,7 @@ it('falls back to text without rewriting the image to a local proxy', async () =
 | frontend-012 | MEDIA-FAIL | 提案5；失效/拒绝/离线不代理，文字/出处仍可用 | business-flow | Visual MEDIA-FAIL route | REQUIRED | L-B；真实第三方/网络条件；Mocked Core API:false；恢复网络/关闭tab/退出 | `.fp-execute/e2e/frontend-012/MEDIA-FAIL/coverage-matrix.md` | BLOCKED：缺可安全真实图故障条件，禁止拦截替代 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/source-image.spec.ts tests/unit/detail.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/source-image.spec.ts tests/unit/features/headlines/detail.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in MEDIA-ALLOWED MEDIA-ABSENT MEDIA-FAIL; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-012 --case "$c" --phase source || exit 1
@@ -162,6 +162,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/SourceImage.vue frontend/src/utils/external-url.ts frontend/src/components/HeadlineCard.vue frontend/src/components/DetailDrawer.vue frontend/tests/unit/source-image.spec.ts frontend/tests/browser/cases/media.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/headlines/components/SourceImage.vue frontend/src/shared/security/external-url.ts frontend/src/features/headlines/components/HeadlineCard.vue frontend/src/features/headlines/components/DetailDrawer.vue frontend/tests/unit/features/headlines/source-image.spec.ts frontend/tests/browser/cases/media.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: use safe direct source images and resilient external links"
 ```

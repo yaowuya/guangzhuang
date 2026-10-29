@@ -3,7 +3,7 @@
 - [x] **Task backend-023: 并发手动刷新只创建一个活动任务**
 
 **Files:**
-- Create: `backend/app/jobs.py`、`backend/tests/test_jobs.py`
+- Create: `backend/app/application/jobs.py`、`backend/tests/integration/persistence/test_jobs.py`
 
 **Reasoning:**
 - D-007、D-023、D-024 要求请求立即得到持久任务ID，活动唯一索引不是只在测试中存在。
@@ -19,7 +19,7 @@
 ```python
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy.orm import Session
-from app.jobs import enqueue_refresh
+from app.application.jobs import enqueue_refresh
 
 def test_concurrent_refresh_reuses_active(db, entry_factory, now):
     entry_factory(enabled=True, verification_status='allowed',
@@ -32,7 +32,7 @@ def test_concurrent_refresh_reuses_active(db, entry_factory, now):
     assert len(set(ids)) == 1
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_jobs.py::test_concurrent_refresh_reuses_active -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_jobs.py::test_concurrent_refresh_reuses_active -q`
 - Expected: enqueue函数缺失。
 
 **Step 3: Write minimal implementation**
@@ -50,19 +50,19 @@ def enqueue_refresh(db, now):
 - enqueue在短事务写入Job(active_key=1)与唯一EntryResults；捕获活动唯一冲突后rollback并重查同一活动Job。日期唯一冲突仅供内部日程返回当日记录，不伪装成新任务。测试无网络调用、pending/running均复用、终态允许新建。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_jobs.py::test_concurrent_refresh_reuses_active -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_jobs.py::test_concurrent_refresh_reuses_active -q`
 - Expected: PASS。自审并发异常分支不会遗留半个任务或重复入口结果。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/jobs.py backend/tests/test_jobs.py
+git add backend/app/application/jobs.py backend/tests/integration/persistence/test_jobs.py
 git commit -m "feat: enqueue one persistent active refresh"
 ```
 
 - [x] **Task backend-024: 重试只选择原任务失败或中断且仍可用的入口**
 
 **Files:**
-- Extend planned: `backend/app/jobs.py`、`backend/tests/test_jobs.py`
+- Extend planned: `backend/app/application/jobs.py`、`backend/tests/integration/persistence/test_jobs.py`
 
 **Reasoning:**
 - D-023、D-030 不得在重试中再次采集已成功入口，也不能绕过新近禁用或撤销的许可。
@@ -76,7 +76,7 @@ git commit -m "feat: enqueue one persistent active refresh"
 
 **Step 1: Write the failing test**
 ```python
-from app.jobs import retry_job
+from app.application.jobs import retry_job
 
 def test_retry_only_unsuccessful_eligible_entries(db, job_factory, entry_factory, now):
     entries = [entry_factory(enabled=True, verification_status='allowed',
@@ -91,7 +91,7 @@ def test_retry_only_unsuccessful_eligible_entries(db, job_factory, entry_factory
     assert {r.entry_id for r in result.job.entries} == {entries[1].id}
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_jobs.py::test_retry_only_unsuccessful_eligible_entries -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_jobs.py::test_retry_only_unsuccessful_eligible_entries -q`
 - Expected: retry_job缺失或候选错误。
 
 **Step 3: Write minimal implementation**
@@ -114,20 +114,20 @@ def retry_job(db, job_id, now):
 - job.entries为I04显式relationship，级联仅删除结果不删除条目；不新增来源编辑能力。补测活跃任务复用、404优先、无候选、原成功结果/计数不变。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_jobs.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_jobs.py -q`
 - Expected: PASS。自审手动retry与自动catchup候选不同，不把pending偷当失败。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/jobs.py backend/tests/test_jobs.py
+git add backend/app/application/jobs.py backend/tests/integration/persistence/test_jobs.py
 git commit -m "feat: retry only unsuccessful approved entries"
 ```
 
 - [x] **Task backend-025: 暴露任务创建、重试、当前与详情 JSON**
 
 **Files:**
-- Create: `backend/app/api_jobs.py`、`backend/tests/test_jobs_api.py`
-- Extend planned: `backend/app/jobs.py`、`backend/app/main.py`
+- Create: `backend/app/presentation/http/jobs.py`、`backend/tests/integration/api/test_jobs_api.py`
+- Extend planned: `backend/app/application/jobs.py`、`backend/app/presentation/http/app.py`
 
 **Reasoning:**
 - D-024 页面重开后需要读取活动或最近任务；无记录应为null而不是404或伪造成功。
@@ -153,7 +153,7 @@ def test_job_routes_and_null_current(user_client, entry_factory):
     assert user_client.get('/api/update-jobs/current').json()['job']['id'] == first.json()['job']['id']
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_jobs_api.py::test_job_routes_and_null_current -q`
+- Run: `cd backend && python -m pytest tests/integration/api/test_jobs_api.py::test_job_routes_and_null_current -q`
 - Expected: 任务API尚未注册。
 
 **Step 3: Write minimal implementation**
@@ -174,20 +174,20 @@ def job_create(body: RefreshIn, db=Depends(get_db)):
 - RefreshIn仅Literal['refresh']；注册retry/detail，使用相同status/DTO。current按活动再created_at/id倒序；每入口许可与访问错误不混同。补测401/403、非法trigger400、404、partial/failed/interrupted DTO与无新增计数0。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_jobs_api.py tests/test_jobs.py -q`
+- Run: `cd backend && python -m pytest tests/integration/api/test_jobs_api.py tests/integration/persistence/test_jobs.py -q`
 - Expected: PASS。自审API没有调用fetch/worker，任务不会阻塞HTTP。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/api_jobs.py backend/app/jobs.py backend/app/main.py backend/tests/test_jobs_api.py
+git add backend/app/presentation/http/jobs.py backend/app/application/jobs.py backend/app/presentation/http/app.py backend/tests/integration/api/test_jobs_api.py
 git commit -m "feat: expose recoverable update job contracts"
 ```
 
 - [x] **Task backend-026: 原子认领任务并串行提交每入口结果**
 
 **Files:**
-- Create: `backend/app/worker.py`、`backend/tests/test_worker.py`
-- Extend planned: `backend/app/database.py`、`backend/app/jobs.py`、`backend/app/ingest.py`、`backend/tests/conftest.py`
+- Create: `backend/app/runtime/worker.py`、`backend/tests/integration/runtime/test_worker.py`
+- Extend planned: `backend/app/infrastructure/persistence/database.py`、`backend/app/application/jobs.py`、`backend/app/application/ingestion.py`、`backend/tests/conftest.py`
 
 **Reasoning:**
 - D-007、D-030 的后台进程必须与API解耦；成功入口的条目和结果同次提交，崩溃不能丢失已提交成功状态。
@@ -201,7 +201,7 @@ git commit -m "feat: expose recoverable update job contracts"
 
 **Step 1: Write the failing test**
 ```python
-from app.worker import claim_next, process_job
+from app.runtime.worker import claim_next, process_job
 
 def test_serial_claim_and_partial_results(worker_lab, now):
     job = worker_lab.pending_job(entries=2)
@@ -217,7 +217,7 @@ def test_serial_claim_and_partial_results(worker_lab, now):
     assert job.entries[0].count_added == 1
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_worker.py::test_serial_claim_and_partial_results -q`
+- Run: `cd backend && python -m pytest tests/integration/runtime/test_worker.py::test_serial_claim_and_partial_results -q`
 - Expected: 独立worker接口尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -235,19 +235,19 @@ def claim_next(db, now):
 - **Windows 开发修订**：本机分支用标准库 `msvcrt.locking` 对同一锁文件做真实互斥测试，生产分支仍为 `fcntl.flock`；这里只完成代码与跨平台锁语义，不声称 Linux 分支已运行。Linux `flock` 必须在 backend-038 镜像和 backend-042 真实进程演练重跑，未通过则后端发布结论保持阻塞。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_worker.py tests/test_ingest.py -q`
+- Run: `cd backend && python -m pytest tests/integration/runtime/test_worker.py tests/integration/persistence/test_ingest.py -q`
 - Expected: PASS；补测全失败/全部零条/一个worker拒绝第二实例与两连接claim。自审网络期间无SQLite写锁，注释说明同入口结果原子边界。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/worker.py backend/app/database.py backend/app/jobs.py backend/app/ingest.py backend/tests/test_worker.py backend/tests/conftest.py
+git add backend/app/runtime/worker.py backend/app/infrastructure/persistence/database.py backend/app/application/jobs.py backend/app/application/ingestion.py backend/tests/integration/runtime/test_worker.py backend/tests/conftest.py
 git commit -m "feat: process persistent source jobs serially"
 ```
 
 - [x] **Task backend-027: 重启先结算旧 running 并保留 pending 队列**
 
 **Files:**
-- Extend planned: `backend/app/worker.py`、`backend/tests/test_worker.py`
+- Extend planned: `backend/app/runtime/worker.py`、`backend/tests/integration/runtime/test_worker.py`
 
 **Reasoning:**
 - D-034 要先释放活动占用，否则当天补跑永远被旧running挡住；不能把正常pending也标中断。
@@ -261,7 +261,7 @@ git commit -m "feat: process persistent source jobs serially"
 
 **Step 1: Write the failing test**
 ```python
-from app.worker import settle_interrupted
+from app.runtime.worker import settle_interrupted
 
 def test_restart_settles_running_not_pending(db, job_factory, now):
     old = job_factory(state='running', result_states=['succeeded', 'running', 'pending'])
@@ -275,7 +275,7 @@ def test_restart_settles_running_not_pending(db, job_factory, now):
     assert queued.state == 'pending'
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_worker.py::test_restart_settles_running_not_pending -q`
+- Run: `cd backend && python -m pytest tests/integration/runtime/test_worker.py::test_restart_settles_running_not_pending -q`
 - Expected: 结算函数缺失。
 
 **Step 3: Write minimal implementation**
@@ -295,11 +295,11 @@ def settle_interrupted(db, now):
 - worker启动次序固定：单例锁→application lease→settle→处理既有pending→日程检查。补测多次启动、原failed不改、成功计数不改与新的手动任务可入队；kill前已提交条目和书签用第二连接验证仍在。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_worker.py -q`
+- Run: `cd backend && python -m pytest tests/integration/runtime/test_worker.py -q`
 - Expected: PASS。自审不以进程内标记代替持久终态，不无条件取消pending。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/worker.py backend/tests/test_worker.py
+git add backend/app/runtime/worker.py backend/tests/integration/runtime/test_worker.py
 git commit -m "feat: settle interrupted jobs before recovery"
 ```

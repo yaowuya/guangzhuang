@@ -3,7 +3,7 @@
 - [x] **Task backend-019: 解析 RSS 元信息并彻底忽略内文模块**
 
 **Files:**
-- Create: `backend/app/parsers.py`、`backend/tests/test_parsers.py`
+- Create: `backend/app/infrastructure/feeds/parsers.py`、`backend/tests/unit/infrastructure/test_parsers.py`
 
 **Reasoning:**
 - D-008、D-009、D-012 接受RSS响应经过内存，但不能因此提取、存储或记录description/content。
@@ -17,7 +17,7 @@
 
 **Step 1: Write the failing test**
 ```python
-from app.parsers import parse_rss
+from app.infrastructure.feeds.parsers import parse_rss
 
 def test_rss_metadata_only(entry_factory):
     e = entry_factory(kind='rss')
@@ -31,7 +31,7 @@ def test_rss_metadata_only(entry_factory):
     assert 'CONTENT_SENTINEL' not in repr(batch)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_parsers.py::test_rss_metadata_only -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_parsers.py::test_rss_metadata_only -q`
 - Expected: RSS解析器不存在。
 
 **Step 3: Write minimal implementation**
@@ -54,19 +54,19 @@ def parse_rss(raw, entry):
 - 补全RFC822/pubDate、DC date和RDF namespace日期；只保留来源明确的当地报道日期，日期无效为NULL并计理由。图片只读明确media thumbnail/enclosure URL，不从description或正文HTML搜图；后续I21再审许可。未识别RSS结构/畸形XML抛ParseError，合法空channel成功零条；不把解析错误吞成空列表。夹具内文仅用哨兵短语，不复制真实正文。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_parsers.py -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_parsers.py -q`
 - Expected: PASS；覆盖RSS2/RDF、DTD、恶意链接和日期。自审无description/content/summary提取或原始响应日志。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/parsers.py backend/tests/test_parsers.py
+git add backend/app/infrastructure/feeds/parsers.py backend/tests/unit/infrastructure/test_parsers.py
 git commit -m "feat: parse rss headline metadata only"
 ```
 
 - [x] **Task backend-020: 从已核验公开列表选择元信息且不补取文章详情**
 
 **Files:**
-- Extend planned: `backend/app/parsers.py`、`backend/tests/test_parsers.py`
+- Extend planned: `backend/app/infrastructure/feeds/parsers.py`、`backend/tests/unit/infrastructure/test_parsers.py`
 
 **Reasoning:**
 - D-012 只允许可用且许可明确的公开列表补充，选择器必须有逐入口运行证据。
@@ -80,7 +80,7 @@ git commit -m "feat: parse rss headline metadata only"
 
 **Step 1: Write the failing test**
 ```python
-from app.parsers import parse_list, ListSelection
+from app.infrastructure.feeds.parsers import parse_list, ListSelection
 
 def test_public_list_has_no_detail_fetch(entry_factory):
     e = entry_factory(kind='public_list')
@@ -92,7 +92,7 @@ def test_public_list_has_no_detail_fetch(entry_factory):
     assert not hasattr(batch.headlines[0], 'body')
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_parsers.py::test_public_list_has_no_detail_fetch -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_parsers.py::test_public_list_has_no_detail_fetch -q`
 - Expected: ListSelection/parse_list尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -118,19 +118,19 @@ def parse_list(raw, entry):
 - date/section/image/credit只从核验选定属性/节点提取，不遍历文章正文，不执行脚本。零条需已验证结构存在的空列表标记才能当合法空响应；选择器失配/页面结构变更要ParseError。ListSelection的container必填，用于验证列表结构；empty可空，存在时作为明确零条标记；字段已固定在账本中。测试夹具明确设置container。不得猜写实际站点CSS；五站任务从未来真实核验生成配置。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_parsers.py -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_parsers.py -q`
 - Expected: PASS；补测恶意href、缺关键项、空容器与错结构。自审不引入文章详情抓取和通用爬虫。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/parsers.py backend/tests/test_parsers.py
+git add backend/app/infrastructure/feeds/parsers.py backend/tests/unit/infrastructure/test_parsers.py
 git commit -m "feat: parse approved public listing metadata"
 ```
 
 - [x] **Task backend-021: 限制图片字段为获许可的安全外链**
 
 **Files:**
-- Create: `backend/app/ingest.py`、`backend/tests/test_ingest.py`
+- Create: `backend/app/application/ingestion.py`、`backend/tests/integration/persistence/test_ingest.py`
 
 **Reasoning:**
 - P-010、D-009 要求图片许可独立核验，缺图不影响标题和收藏，不允许失败后代理。
@@ -144,7 +144,7 @@ git commit -m "feat: parse approved public listing metadata"
 
 **Step 1: Write the failing test**
 ```python
-from app.ingest import allowed_image
+from app.application.ingestion import allowed_image
 
 def test_images_are_links_with_permission(entry_factory, monkeypatch):
     e = entry_factory()
@@ -157,7 +157,7 @@ def test_images_are_links_with_permission(entry_factory, monkeypatch):
     assert allowed_image('https://127.0.0.1/a.jpg', None, e) == (None, None)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_ingest.py::test_images_are_links_with_permission -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_ingest.py::test_images_are_links_with_permission -q`
 - Expected: 图片许可过滤尚未定义。
 
 **Step 3: Write minimal implementation**
@@ -175,19 +175,19 @@ def allowed_image(url, credit, entry):
 - 严格URL控制字符/端口/IDNA/字面IP检查复用URL边界，不调用SafeClient.fetch图片。测试patch socket/HTTP调用为立即失败，证明过滤本身无出站。API无图片代理路径；未来浏览器失败仅降级由前端负责。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_ingest.py::test_images_are_links_with_permission -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_ingest.py::test_images_are_links_with_permission -q`
 - Expected: PASS。自审数据库/DTO只含URL/署名，图片许可false不是入口标题许可false。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/ingest.py backend/tests/test_ingest.py
+git add backend/app/application/ingestion.py backend/tests/integration/persistence/test_ingest.py
 git commit -m "feat: retain only permitted source image links"
 ```
 
 - [x] **Task backend-022: 在单入口事务中采集、分类并提交结果**
 
 **Files:**
-- Extend planned: `backend/app/ingest.py`、`backend/tests/test_ingest.py`、`backend/tests/conftest.py`（http_lab client factory）
+- Extend planned: `backend/app/application/ingestion.py`、`backend/tests/integration/persistence/test_ingest.py`、`backend/tests/conftest.py`（http_lab client factory）
 
 **Reasoning:**
 - D-008、D-023 要求成功结果可保留，解析失败/截断不伪报成功，合法零条与首次空库区分。
@@ -201,8 +201,8 @@ git commit -m "feat: retain only permitted source image links"
 
 **Step 1: Write the failing test**
 ```python
-from app.ingest import ingest_entry
-from app.models import Article
+from app.application.ingestion import ingest_entry
+from app.infrastructure.persistence.models import Article
 from sqlalchemy import select
 
 def test_entry_atomicity_zero_and_invalid_rows(db, entry_factory, http_lab, now):
@@ -216,7 +216,7 @@ def test_entry_atomicity_zero_and_invalid_rows(db, entry_factory, http_lab, now)
     assert e.last_success_at == now
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_ingest.py::test_entry_atomicity_zero_and_invalid_rows -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_ingest.py::test_entry_atomicity_zero_and_invalid_rows -q`
 - Expected: 单入口采集函数尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -242,11 +242,11 @@ def ingest_entry(db, entry, client, now):
 - db.info由get_db/worker会话设置rules_config与入口静态配置；SourceEntry运行时附加经I15校验的selection/hosts/image条件，不新增数据库列。无效关键字段计跳过；存储异常回滚整入口，safe_error仅返回受控错误码和短消息。error/state结果由worker另一短事务记录；不把RSS原始body/HTML异常摘录写入日志。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_ingest.py tests/test_parsers.py tests/test_upsert.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_ingest.py tests/unit/infrastructure/test_parsers.py tests/integration/persistence/test_upsert.py -q`
 - Expected: PASS；补测畸形/过大响应失败、写到一半出错原子回滚、未知字段保留旧值、无新增。自审网络操作不持有SQLite写锁。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/ingest.py backend/tests/test_ingest.py
+git add backend/app/application/ingestion.py backend/tests/integration/persistence/test_ingest.py
 git commit -m "feat: ingest approved metadata in entry transactions"
 ```

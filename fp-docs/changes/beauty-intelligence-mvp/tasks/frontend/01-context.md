@@ -15,7 +15,7 @@
 - **认证**：服务器 Secure/HttpOnly/SameSite Cookie，24 小时由服务器到期判定；CSRF 只驻内存。首登 JSON 密码不带旧 CSRF；其它写请求带 `X-CSRF-Token`，浏览器提供同源 Origin。401 清会话并安全返回登录；403 显示拒绝，不伪造已登录；重新登录不自动重放写请求。
 - **分页与缺值**：默认 page=1/page_size=20，上限 100；q 上限 200 字符。首页按报道日期／ID 倒序，收藏按收藏时间／条目 ID 倒序，前端不再排序。允许后台更新造成跨页位移，不增加快照。分类空数组为未分类；地区、品类、日期和图片可空，不以 updated_at 或站点国别补造。依据：[I10～I14 与查询枚举](<../backend/05-interfaces.md#数据结构和枚举>)及[后端约束](<../backend/01-context.md#global-constraints>)。
 - **来源与图片**：五站六候选入口只读，许可与运行失败分开显示；原始图片由浏览器直连第三方，图片失败只降级文字，收藏及原文仍可用。不得代理、下载、转存、base64 内嵌业务图片或加载原型历史图作生产数据。当前没有任何已启用来源事实；本轮不外联、不启用来源。
-- **工程依赖**：frontend-001 产生可由 Caddy 消费的 `frontend/dist/index.html` 和本地 assets；这是最小空壳构建，不是完整产品。该任务不依赖 backend-039 或任何后端验收。主调度将它接到 backend-039；后续 UI 任务重建同一目录，真实同域 UI 才依赖 backend-039 和实际 API owner。最终联验依赖 backend-041，不依赖 backend-045，避免跨端循环。
+- **工程依赖**：frontend-001 证明源码可生成 `frontend/dist/index.html` 和本地 assets；这是最小空壳构建，不是完整产品。生产由根 `Dockerfile` 的 frontend-builder 用 frozen lock 重建并经 `check:artifact` 后复制到 FastAPI runtime 的 `/srv/app/static`，不依赖宿主残留 dist。该任务不依赖 backend-039；真实同域 UI 仍依赖 backend-039 和实际 API owner。最终联验依赖 backend-041，不依赖 backend-045，避免跨端循环。
 - **工程质量**：执行者和 reviewer 自行读取插件相对资源 `skills/_shared/engineering-quality.md`、`skills/_shared/ui-e2e-contract.md` 及本计划，并按 workspace contract 解析当前安装根。无客户注释格式时用准确中文文档注释；拒绝无当前依据的层、缓存、开关或抽象。小组件／局部状态的简化 owner 是[前端设计风险节](<../../design/frontend.md#风险迁移发布回滚与监控>)；触发条件是实际跨页面状态重复和维护成本增长，不削减当前响应式、键盘或错误验收。
 - **Visual evidence runner**：主代理已核验现有 `playwright-cli 0.1.22` + Chrome 可 open `about:blank` 并 close。无项目 runner，不隐式装浏览器、不改全局配置。frontend-006 显式规划项目内薄封装和局部配置；先读现有 CLI help 核对选项，不以 CLI 可启动宣称业务 E2E 通过。能力失效时进入客户选择门禁，缺可用获批能力则 BLOCKED。
 - **安装授权**：Vitest、Vue Test Utils 和 jsdom 在规划时属于拟新增依赖；安装事实与实际版本以 frontend-001 提交、锁文件和 progress 证据为准。所有 pnpm 命令必须用执行时 `load_workspace_dependencies` 返回的 bundled Node 可执行文件和 pnpm 脚本路径，不用当前 PATH 的 Node。规划时核验 bundled Node v24.21.0、Python 3.12.14、pnpm 11.28.5；执行前仍须实时核对。
@@ -31,31 +31,31 @@
 | `frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/pnpm-workspace.yaml`、`frontend/.gitignore` | create | frontend-001 依赖、准确脚本、生成物隔离；实际安装确认 pnpm 11 拦截 esbuild，仅项目级放行该构建依赖，不放开全部脚本或全局配置 |
 | `frontend/index.html`、`frontend/tsconfig.json`、`frontend/tsconfig.app.json` | create | 入口和 TS project；app include 不覆盖 unit |
 | `frontend/vite.config.ts`、`frontend/vitest.config.ts` | create | `dist` 静态构建；独立 jsdom 单元配置 |
-| `frontend/src/main.ts`、`frontend/src/env.d.ts`、`frontend/src/App.vue`、`frontend/src/router/index.ts` | create/extend | 最小工程入口；后续真实路由和 shell |
-| `frontend/scripts/check-artifact.mjs`、`frontend/tests/unit/bootstrap.spec.ts`、`frontend/tests/unit/setup.ts` | create | 最小构建入口测试、资源引用／原型隔离校验 |
-| `frontend/tests/visual/source-map.json`、`frontend/scripts/check-visual-sources.mjs`、`frontend/tests/unit/visual-source.spec.ts` | create | frontend-002 冻结来源 hash、区域和允许差异；不生成当前截图 |
-| `frontend/src/api/contracts.ts`、`frontend/src/api/client.ts`、`frontend/tests/unit/api-client.spec.ts`、`frontend/tests/unit/fixtures.ts` | create | frontend-003 精确 DTO、同源 fetch、明确 unit-only 夹具 |
-| `frontend/src/state/session.ts`、`frontend/src/state/runtime.ts`、`frontend/tests/unit/session.spec.ts` | create | frontend-004 内存会话与单一 API 实例 |
-| `frontend/src/state/query.ts`、`frontend/tests/unit/query.spec.ts` | create | frontend-005 URL 编解码及安全返回地址 |
-| `frontend/src/views/LoginView.vue`、`frontend/src/views/WorkspaceView.vue`、`frontend/tests/unit/login.spec.ts` | create/extend | frontend-006 登录与工作台路由容器 |
-| `frontend/scripts/browser-case.mjs`、`frontend/tests/browser/cli.config.json`、`frontend/tests/browser/case-registry.mjs`、`frontend/tests/browser/support.mjs`、`frontend/tests/browser/README.md`、`frontend/tests/unit/browser-harness.spec.ts` | create/extend | 现有 CLI 薄封装、显式局部配置、case 注册和安全证据说明 |
+| `frontend/src/app/main.ts`、`frontend/src/env.d.ts`、`frontend/src/app/App.vue`、`frontend/src/app/router.ts` | create/extend | 最小工程入口；后续真实路由和 shell |
+| `frontend/scripts/check-artifact.mjs`、`frontend/tests/unit/app/bootstrap.spec.ts`、`frontend/tests/unit/setup.ts` | create | 最小构建入口测试、资源引用／原型隔离校验 |
+| `frontend/tests/visual/source-map.json`、`frontend/scripts/check-visual-sources.mjs`、`frontend/tests/unit/visual/source.spec.ts` | create | frontend-002 冻结来源 hash、区域和允许差异；不生成当前截图 |
+| `frontend/src/shared/api/contracts.ts`、`frontend/src/shared/api/client.ts`、`frontend/tests/unit/api/client.spec.ts`、`frontend/tests/unit/fixtures.ts` | create | frontend-003 精确 DTO、同源 fetch、明确 unit-only 夹具 |
+| `frontend/src/features/auth/session.ts`、`frontend/src/app/runtime.ts`、`frontend/tests/unit/features/auth/session.spec.ts` | create | frontend-004 内存会话与单一 API 实例 |
+| `frontend/src/features/headlines/query.ts`、`frontend/tests/unit/features/headlines/query.spec.ts` | create | frontend-005 URL 编解码及安全返回地址 |
+| `frontend/src/features/auth/views/LoginView.vue`、`frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/unit/features/auth/login.spec.ts` | create/extend | frontend-006 登录与工作台路由容器 |
+| `frontend/scripts/browser-case.mjs`、`frontend/tests/browser/cli.config.json`、`frontend/tests/browser/case-registry.mjs`、`frontend/tests/browser/support.mjs`、`frontend/tests/browser/README.md`、`frontend/tests/unit/app/browser-harness.spec.ts` | create/extend | 现有 CLI 薄封装、显式局部配置、case 注册和安全证据说明 |
 | `frontend/tests/browser/cases/auth.mjs`、`frontend/tests/browser/cases/navigation.mjs` | create | 006/007 正常页面认证和导航 replay |
-| `frontend/src/components/AppShell.vue`、`frontend/src/components/NavMenu.vue`、`frontend/src/components/IconButton.vue`、`frontend/src/components/StatusNotice.vue` | create/extend | frontend-007 小型共享壳和原生控件 |
-| `frontend/src/styles/tokens.css`、`frontend/src/styles/base.css`、`frontend/src/styles/layout.css`、`frontend/src/assets/fonts/instrument-sans.ttf`、`frontend/src/assets/fonts/OFL.txt` | create/extend | frontend-007 来源 token、布局和获准字体许可 |
-| `frontend/tests/unit/navigation.spec.ts` | create | shell/导航语义测试 |
-| `frontend/src/state/headlines.ts`、`frontend/tests/unit/headlines.spec.ts` | create | frontend-008 分页读取、竞态和状态边界 |
-| `frontend/src/components/HeadlineList.vue`、`frontend/src/components/HeadlineCard.vue`、`frontend/src/components/PaginationControls.vue`、`frontend/tests/unit/headline-list.spec.ts`、`frontend/tests/browser/cases/reading.mjs` | create/extend | frontend-009 真实标题列表、缺值、服务端分页及状态 |
-| `frontend/src/components/SearchFilters.vue`、`frontend/tests/unit/filters.spec.ts`、`frontend/tests/browser/cases/filters.mjs` | create | frontend-010 动态选项和 URL 组合查询 |
-| `frontend/src/components/DetailDrawer.vue`、`frontend/src/state/drawer.ts`、`frontend/tests/unit/detail.spec.ts`、`frontend/tests/browser/cases/detail.mjs` | create/extend | frontend-011 详情、焦点和返回位置 |
-| `frontend/src/components/SourceImage.vue`、`frontend/src/utils/external-url.ts`、`frontend/tests/unit/source-image.spec.ts`、`frontend/tests/browser/cases/media.mjs` | create | frontend-012 直连图、出处和安全外链 |
-| `frontend/src/components/BookmarkButton.vue`、`frontend/src/state/bookmarks.ts`、`frontend/tests/unit/bookmarks.spec.ts`、`frontend/tests/browser/cases/bookmarks.mjs` | create/extend | frontend-013 服务端确认、三入口一致及失败保留 |
-| `frontend/src/views/FavoritesView.vue`、`frontend/tests/unit/favorites.spec.ts`、`frontend/tests/browser/cases/favorites.mjs` | create | frontend-014 收藏筛选、顺序、空和取消 |
-| `frontend/src/components/SourceStatus.vue`、`frontend/src/components/SourceRow.vue`、`frontend/src/state/sources.ts`、`frontend/tests/unit/sources.spec.ts`、`frontend/tests/browser/cases/sources.mjs` | create | frontend-015 五站六入口许可／运行只读状态 |
-| `frontend/src/components/UpdateStatus.vue`、`frontend/src/state/update-job.ts`、`frontend/tests/unit/update-job.spec.ts`、`frontend/tests/browser/cases/updates.mjs` | create/extend | frontend-016 持久任务 ID、刷新、轮询和失败入口重试 |
-| `frontend/src/state/overlay.ts`、`frontend/tests/unit/accessibility.spec.ts`、`frontend/tests/browser/cases/accessibility.mjs` | create/extend | frontend-017 统一互斥浮层、手机和键盘收口 |
-| `frontend/scripts/check-delivery.mjs`、`frontend/tests/unit/delivery-gate.spec.ts` | create | frontend-018 证据只读校验，不替 reviewer 下视觉结论 |
-| `frontend/tests/browser/cases/release.mjs`、`frontend/tests/unit/release-gate.spec.ts` | create | frontend-019 串行真实业务闭环与最终证据门禁 |
-| `frontend/dist/` | build | 001 最小、后续 UI 每次重建的同一 Caddy 消费目录；不提交生成物 |
+| `frontend/src/shared/ui/AppShell.vue`、`frontend/src/shared/ui/NavMenu.vue`、`frontend/src/shared/ui/IconButton.vue`、`frontend/src/shared/ui/StatusNotice.vue` | create/extend | frontend-007 小型共享壳和原生控件 |
+| `frontend/src/shared/styles/tokens.css`、`frontend/src/shared/styles/base.css`、`frontend/src/shared/styles/layout.css`、`frontend/src/shared/assets/fonts/instrument-sans.ttf`、`frontend/src/shared/assets/fonts/OFL.txt` | create/extend | frontend-007 来源 token、布局和获准字体许可 |
+| `frontend/tests/unit/app/navigation.spec.ts` | create | shell/导航语义测试 |
+| `frontend/src/features/headlines/headlines.ts`、`frontend/tests/unit/features/headlines/headlines.spec.ts` | create | frontend-008 分页读取、竞态和状态边界 |
+| `frontend/src/features/headlines/components/HeadlineList.vue`、`frontend/src/features/headlines/components/HeadlineCard.vue`、`frontend/src/features/headlines/components/PaginationControls.vue`、`frontend/tests/unit/features/headlines/headline-list.spec.ts`、`frontend/tests/browser/cases/reading.mjs` | create/extend | frontend-009 真实标题列表、缺值、服务端分页及状态 |
+| `frontend/src/features/headlines/components/SearchFilters.vue`、`frontend/tests/unit/features/headlines/filters.spec.ts`、`frontend/tests/browser/cases/filters.mjs` | create | frontend-010 动态选项和 URL 组合查询 |
+| `frontend/src/features/headlines/components/DetailDrawer.vue`、`frontend/src/features/headlines/drawer.ts`、`frontend/tests/unit/features/headlines/detail.spec.ts`、`frontend/tests/browser/cases/detail.mjs` | create/extend | frontend-011 详情、焦点和返回位置 |
+| `frontend/src/features/headlines/components/SourceImage.vue`、`frontend/src/shared/security/external-url.ts`、`frontend/tests/unit/features/headlines/source-image.spec.ts`、`frontend/tests/browser/cases/media.mjs` | create | frontend-012 直连图、出处和安全外链 |
+| `frontend/src/features/bookmarks/components/BookmarkButton.vue`、`frontend/src/features/bookmarks/bookmarks.ts`、`frontend/tests/unit/features/bookmarks/bookmarks.spec.ts`、`frontend/tests/browser/cases/bookmarks.mjs` | create/extend | frontend-013 服务端确认、三入口一致及失败保留 |
+| `frontend/src/features/bookmarks/views/FavoritesView.vue`、`frontend/tests/unit/features/bookmarks/favorites.spec.ts`、`frontend/tests/browser/cases/favorites.mjs` | create | frontend-014 收藏筛选、顺序、空和取消 |
+| `frontend/src/features/sources/components/SourceStatus.vue`、`frontend/src/features/sources/components/SourceRow.vue`、`frontend/src/features/sources/sources.ts`、`frontend/tests/unit/features/sources/sources.spec.ts`、`frontend/tests/browser/cases/sources.mjs` | create | frontend-015 五站六入口许可／运行只读状态 |
+| `frontend/src/features/update-jobs/components/UpdateStatus.vue`、`frontend/src/features/update-jobs/update-job.ts`、`frontend/tests/unit/features/update-jobs/update-job.spec.ts`、`frontend/tests/browser/cases/updates.mjs` | create/extend | frontend-016 持久任务 ID、刷新、轮询和失败入口重试 |
+| `frontend/src/app/overlay.ts`、`frontend/tests/unit/app/accessibility.spec.ts`、`frontend/tests/browser/cases/accessibility.mjs` | create/extend | frontend-017 统一互斥浮层、手机和键盘收口 |
+| `frontend/scripts/check-delivery.mjs`、`frontend/tests/unit/app/delivery-gate.spec.ts` | create | frontend-018 证据只读校验，不替 reviewer 下视觉结论 |
+| `frontend/tests/browser/cases/release.mjs`、`frontend/tests/unit/app/release-gate.spec.ts` | create | frontend-019 串行真实业务闭环与最终证据门禁 |
+| `frontend/dist/` | build | 本地/CI 构建输出，不提交；生产由根 Dockerfile 的 frontend-builder 生成并复制到 FastAPI runtime `/srv/app/static` |
 | `fp-docs/changes/beauty-intelligence-mvp/.fp-execute/visual/` | future evidence | 任务双表声明的 `<task-id>/<case-id>/{manifest.md,reference.png,current.png,diff.png,review.md}`；018 独立总审在 `reviews/frontend-018/review.md` |
 | `fp-docs/changes/beauty-intelligence-mvp/.fp-execute/e2e/` | future evidence | 每个 case 的 `coverage-matrix.md`、`manifest.md`、`run.md` 和脱敏浏览器 artifacts；不保存 storageState／口令 |
 | `fp-docs/changes/beauty-intelligence-mvp/.fp-execute/frontend-release.md` | future evidence | frontend-019 最终真实联验报告，不代替 owner checkbox |
@@ -79,9 +79,9 @@
 | R-D | [desktop-fold.jpg](<../../.prototype-evidence/taste/inspect/desktop-fold.jpg>)，1440×900；左导航、白主面、toolbar、标题层级 | `e18dbdf9a49265a71a6ca7a386455ce83c8cfaa6b0e6e88cb7d9c7765357bad0` |
 | R-T | [tablet-fold.jpg](<../../.prototype-evidence/taste/inspect/tablet-fold.jpg>)，768×1024；折叠导航、主面、混合跨度 | `789ef7e1ef243ff2ef854186c07459c6f5514fed1f8b51423a00a843c3fb8f85` |
 | R-M | [mobile-fold.jpg](<../../.prototype-evidence/taste/inspect/mobile-fold.jpg>)，390×844；正文流搜索、44 px 控件、单列卡 | `61947d7ee017a1876e47dbe60601d42e458cf4dc1889b54a1face23c0cd7b260` |
-| R-S | [frontend design](<../../design/frontend.md>)，D-001/D-020/D-025 和 Visual Checks；新登录／来源画面的规则来源 | `e4f9c5c6aae0a2ba4df88416e2a8613ca933d8891a70f389effe8bf56af8b340` |
+| R-S | [frontend design](<../../design/frontend.md>)，D-001/D-020/D-025 和 Visual Checks；新登录／来源画面的规则来源 | `cb2ee739dc2ad4692c5b33ca3cb5c69f9a73cdbe850216b1b8a52f8155d2d762` |
 | R-F | [Instrument Sans 字体](<../../.prototype-evidence/instrument-sans.ttf>)；[OFL 许可](<../../.prototype-evidence/font-license.txt>) | font `b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1`；license `9e27a72ed30eb49a08678f6a5d6ed98ec7ba5368f541637ee0683ec9134ef966` |
-| API-R1 | [最终后端账本](<../backend/05-interfaces.md>)；引用其 I08/I12/I14/I16/I25/I39 | `48f646ebec8bf384df2d8213194c033da4c266d5abe99bcb4c8d8d560d34ad32` |
+| API-R1 | [最终后端账本](<../backend/05-interfaces.md>)；引用其 I08/I12/I14/I16/I25/I39 | `35659aa3a5881045631fc3b78725d495ab4627a9e5d435e9c41dd075ec0f5d5a` |
 
 原截图的摘要、研究阶段和上市日期必须删去；允许内容高度随标题版自然收缩，不得通过假文字／空白补齐旧卡片。R-P 的 `--paper` 等装饰色不授权重用历史业务图。
 

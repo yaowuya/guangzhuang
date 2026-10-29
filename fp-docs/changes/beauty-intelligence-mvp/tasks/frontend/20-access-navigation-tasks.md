@@ -3,8 +3,8 @@
 - [ ] **Task frontend-006: 接通服务器登录、受保护路由和现有 CLI 交付入口**
 
 **Files:**
-- Create: `frontend/src/views/LoginView.vue`、`frontend/src/views/WorkspaceView.vue`、`frontend/tests/unit/login.spec.ts`、`frontend/scripts/browser-case.mjs`、`frontend/tests/browser/cli.config.json`、`frontend/tests/browser/case-registry.mjs`、`frontend/tests/browser/support.mjs`、`frontend/tests/browser/README.md`、`frontend/tests/browser/cases/auth.mjs`、`frontend/tests/unit/browser-harness.spec.ts`。
-- Extend planned: `frontend/src/router/index.ts`、`frontend/src/App.vue`。
+- Create: `frontend/src/features/auth/views/LoginView.vue`、`frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/unit/features/auth/login.spec.ts`、`frontend/scripts/browser-case.mjs`、`frontend/tests/browser/cli.config.json`、`frontend/tests/browser/case-registry.mjs`、`frontend/tests/browser/support.mjs`、`frontend/tests/browser/README.md`、`frontend/tests/browser/cases/auth.mjs`、`frontend/tests/unit/app/browser-harness.spec.ts`。
+- Extend planned: `frontend/src/app/router.ts`、`frontend/src/app/App.vue`。
 - Future evidence: 本任务下列 case 双表声明的 visual/e2e 文件，不在本轮创建。
 
 **Reasoning:**
@@ -25,8 +25,8 @@
 import { it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import LoginView from '../../src/views/LoginView.vue'
-import { createApi } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
+import { createApi } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
 import { authFixture } from './fixtures'
 
 it('submits the password normally and emits only after server confirmation', async () => {
@@ -42,7 +42,7 @@ it('submits the password normally and emits only after server confirmation', asy
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/login.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/auth/login.spec.ts`
 - Expected: LoginView 不存在；单元替身只证明 UI 提交契约，不能证明真实登录通过。
 
 **Step 3: Write minimal implementation**
@@ -70,7 +70,7 @@ it('submits the password normally and emits only after server confirmation', asy
 | frontend-006 | AUTH-EXPIRED | D-017/D-025；真实失效重登不重放收藏/刷新写入 | business-flow | Visual AUTH-EXPIRED route | REQUIRED | L-B；真实权限失效和重登请求计数；Mocked Core API:false；注销测试会话 | `.fp-execute/e2e/frontend-006/AUTH-EXPIRED/coverage-matrix.md` | BLOCKED：未执行真实到期／撤销与无写重放验证 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/login.spec.ts tests/unit/session.spec.ts tests/unit/browser-harness.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/auth/login.spec.ts tests/unit/features/auth/session.spec.ts tests/unit/app/browser-harness.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 - Browser commands（仓库根，环境输入已确认后）：
 ```bash
 for c in AUTH-BASE AUTH-FAIL AUTH-EXPIRED; do
@@ -84,15 +84,15 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/views/LoginView.vue frontend/src/views/WorkspaceView.vue frontend/src/router/index.ts frontend/src/App.vue frontend/tests/unit/login.spec.ts frontend/scripts/browser-case.mjs frontend/tests/browser/cli.config.json frontend/tests/browser/case-registry.mjs frontend/tests/browser/support.mjs frontend/tests/browser/README.md frontend/tests/browser/cases/auth.mjs frontend/tests/unit/browser-harness.spec.ts
+git add frontend/src/features/auth/views/LoginView.vue frontend/src/features/headlines/views/WorkspaceView.vue frontend/src/app/router.ts frontend/src/app/App.vue frontend/tests/unit/features/auth/login.spec.ts frontend/scripts/browser-case.mjs frontend/tests/browser/cli.config.json frontend/tests/browser/case-registry.mjs frontend/tests/browser/support.mjs frontend/tests/browser/README.md frontend/tests/browser/cases/auth.mjs frontend/tests/unit/app/browser-harness.spec.ts
 git commit -m "feat: add real session login and guarded browser delivery entry"
 ```
 
 - [ ] **Task frontend-007: 复用原型原子控件、工作台外壳和七类导航**
 
 **Files:**
-- Create: `frontend/src/components/AppShell.vue`、`frontend/src/components/NavMenu.vue`、`frontend/src/components/IconButton.vue`、`frontend/src/components/StatusNotice.vue`、`frontend/src/styles/tokens.css`、`frontend/src/styles/base.css`、`frontend/src/styles/layout.css`、`frontend/src/assets/fonts/instrument-sans.ttf`、`frontend/src/assets/fonts/OFL.txt`、`frontend/tests/unit/navigation.spec.ts`、`frontend/tests/browser/cases/navigation.mjs`。
-- Extend planned: `frontend/src/main.ts`、`frontend/src/views/LoginView.vue`、`frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/shared/ui/AppShell.vue`、`frontend/src/shared/ui/NavMenu.vue`、`frontend/src/shared/ui/IconButton.vue`、`frontend/src/shared/ui/StatusNotice.vue`、`frontend/src/shared/styles/tokens.css`、`frontend/src/shared/styles/base.css`、`frontend/src/shared/styles/layout.css`、`frontend/src/shared/assets/fonts/instrument-sans.ttf`、`frontend/src/shared/assets/fonts/OFL.txt`、`frontend/tests/unit/app/navigation.spec.ts`、`frontend/tests/browser/cases/navigation.mjs`。
+- Extend planned: `frontend/src/app/main.ts`、`frontend/src/features/auth/views/LoginView.vue`、`frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 
 **Reasoning:**
 - D-001/D-020/D-025 的浅色阅读壳、七类／全部／收藏导航与可关闭 mobile 面板先独立落地，不复制演示切换器和虚构统计。
@@ -124,7 +124,7 @@ it('emits the backend category code and exposes the active navigation', async ()
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/navigation.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/navigation.spec.ts`
 - Expected: NavMenu 模块缺失。
 
 **Step 3: Write minimal implementation**
@@ -149,7 +149,7 @@ it('emits the backend category code and exposes the active navigation', async ()
 | frontend-007 | NAV-M | R-S手机/键盘；展开关闭、inert、焦点恢复、路由选择 | interactive | Visual NAV-M route | REQUIRED | L-I；独立review＋触屏/键盘run；Mocked Core API:false；关闭面板/退出 | `.fp-execute/e2e/frontend-007/NAV-M/coverage-matrix.md` | BLOCKED：未执行真实mobile交互 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/navigation.spec.ts tests/unit/login.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/navigation.spec.ts tests/unit/features/auth/login.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in NAV-D NAV-M; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-007 --case "$c" --phase source || exit 1
@@ -161,6 +161,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/AppShell.vue frontend/src/components/NavMenu.vue frontend/src/components/IconButton.vue frontend/src/components/StatusNotice.vue frontend/src/styles/tokens.css frontend/src/styles/base.css frontend/src/styles/layout.css frontend/src/assets/fonts/instrument-sans.ttf frontend/src/assets/fonts/OFL.txt frontend/src/main.ts frontend/src/views/LoginView.vue frontend/src/views/WorkspaceView.vue frontend/tests/unit/navigation.spec.ts frontend/tests/browser/cases/navigation.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/shared/ui/AppShell.vue frontend/src/shared/ui/NavMenu.vue frontend/src/shared/ui/IconButton.vue frontend/src/shared/ui/StatusNotice.vue frontend/src/shared/styles/tokens.css frontend/src/shared/styles/base.css frontend/src/shared/styles/layout.css frontend/src/shared/assets/fonts/instrument-sans.ttf frontend/src/shared/assets/fonts/OFL.txt frontend/src/app/main.ts frontend/src/features/auth/views/LoginView.vue frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/app/navigation.spec.ts frontend/tests/browser/cases/navigation.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: add prototype grounded shell and accessible navigation"
 ```

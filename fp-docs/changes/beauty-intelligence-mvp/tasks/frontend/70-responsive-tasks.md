@@ -3,8 +3,8 @@
 - [ ] **Task frontend-017: 统一浮层清理并验证全键盘、360px和缩放可达性**
 
 **Files:**
-- Create: `frontend/src/state/overlay.ts`、`frontend/tests/unit/accessibility.spec.ts`、`frontend/tests/browser/cases/accessibility.mjs`。
-- Extend planned: `frontend/src/components/AppShell.vue`、`frontend/src/components/NavMenu.vue`、`frontend/src/components/DetailDrawer.vue`、`frontend/src/components/SourceStatus.vue`、`frontend/src/components/SearchFilters.vue`、`frontend/src/components/PaginationControls.vue`、`frontend/src/components/BookmarkButton.vue`、`frontend/src/components/UpdateStatus.vue`、`frontend/src/styles/base.css`、`frontend/src/styles/layout.css`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/app/overlay.ts`、`frontend/tests/unit/app/accessibility.spec.ts`、`frontend/tests/browser/cases/accessibility.mjs`。
+- Extend planned: `frontend/src/shared/ui/AppShell.vue`、`frontend/src/shared/ui/NavMenu.vue`、`frontend/src/features/headlines/components/DetailDrawer.vue`、`frontend/src/features/sources/components/SourceStatus.vue`、`frontend/src/features/headlines/components/SearchFilters.vue`、`frontend/src/features/headlines/components/PaginationControls.vue`、`frontend/src/features/bookmarks/components/BookmarkButton.vue`、`frontend/src/features/update-jobs/components/UpdateStatus.vue`、`frontend/src/shared/styles/base.css`、`frontend/src/shared/styles/layout.css`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: ACCESS-KBD、ACCESS-MOBILE 双表。
 
 **Reasoning:**
@@ -23,7 +23,7 @@
 **Step 1: Write the failing test**
 ```ts
 import { it, expect } from 'vitest'
-import { useOverlay } from '../../src/state/overlay'
+import { useOverlay } from '../../../src/app/overlay'
 
 it('restores prior body and inert state after switching and closing overlays', () => {
   const opener = document.createElement('button')
@@ -43,7 +43,7 @@ it('restores prior body and inert state after switching and closing overlays', (
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/accessibility.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/accessibility.spec.ts`
 - Expected: useOverlay缺失；不能仅用Tab事件unit断言替代真实焦点E2E。
 
 **Step 3: Write minimal implementation**
@@ -68,7 +68,7 @@ it('restores prior body and inert state after switching and closing overlays', (
 | frontend-017 | ACCESS-MOBILE | R-S mobile/焦点/隐藏导航；360px完整真实业务和浮层互斥 | business-flow | Visual ACCESS-MOBILE route | REQUIRED | L-B；真实触控/键盘run和持久结果；Mocked Core API:false；关闭层/UI清理/退出 | `.fp-execute/e2e/frontend-017/ACCESS-MOBILE/coverage-matrix.md` | BLOCKED：未执行真实360px流程 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/accessibility.spec.ts tests/unit/navigation.spec.ts tests/unit/detail.spec.ts tests/unit/favorites.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/accessibility.spec.ts tests/unit/app/navigation.spec.ts tests/unit/features/headlines/detail.spec.ts tests/unit/features/bookmarks/favorites.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in ACCESS-KBD ACCESS-MOBILE; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-017 --case "$c" --phase source || exit 1
@@ -80,6 +80,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/state/overlay.ts frontend/src/components/AppShell.vue frontend/src/components/NavMenu.vue frontend/src/components/DetailDrawer.vue frontend/src/components/SourceStatus.vue frontend/src/components/SearchFilters.vue frontend/src/components/PaginationControls.vue frontend/src/components/BookmarkButton.vue frontend/src/components/UpdateStatus.vue frontend/src/styles/base.css frontend/src/styles/layout.css frontend/tests/unit/accessibility.spec.ts frontend/tests/browser/cases/accessibility.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/app/overlay.ts frontend/src/shared/ui/AppShell.vue frontend/src/shared/ui/NavMenu.vue frontend/src/features/headlines/components/DetailDrawer.vue frontend/src/features/sources/components/SourceStatus.vue frontend/src/features/headlines/components/SearchFilters.vue frontend/src/features/headlines/components/PaginationControls.vue frontend/src/features/bookmarks/components/BookmarkButton.vue frontend/src/features/update-jobs/components/UpdateStatus.vue frontend/src/shared/styles/base.css frontend/src/shared/styles/layout.css frontend/tests/unit/app/accessibility.spec.ts frontend/tests/browser/cases/accessibility.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: close keyboard mobile and overlay lifecycle gaps"
 ```

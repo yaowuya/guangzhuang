@@ -3,21 +3,22 @@
 ## Frontend Framework and Source Locations
 
 - Framework: Vue 3.5.44、TypeScript 5.9.3、Vite 7.3.7、Vue Router 4.6.4；直接依赖见 `frontend/package.json`。
-- Source roots: `frontend/src/`；应用入口 `frontend/src/main.ts`。
-- Route locations: `frontend/src/router/index.ts`；生产路由限 `/login`、`/`、`/favorites` 及页面局部 drawer/panel 状态。
+- Source roots: `frontend/src/`；应用入口 `frontend/src/app/main.ts`。
+- Module layout: `app/` 仅组合根与跨 feature 协调，`features/` 按业务能力组织，`shared/` 保存不依赖 feature 的 API 契约和基础设施；测试镜像这些职责。
+- Route locations: `frontend/src/app/router.ts`；生产路由限 `/login`、`/`、`/favorites` 及页面局部 drawer/panel 状态。
 
 ## Code Standards
 
 - Built-in preset: `vue`
 - Rule resources: `skills/_shared/code-standards/common.md` + `skills/_shared/code-standards/vue.md`
-- Applies to: `frontend/`；Vue 3.5.44，证据为 `frontend/package.json` 的直接依赖和 `frontend/src/main.ts` 的 `createApp` 入口。
+- Applies to: `frontend/`；Vue 3.5.44，证据为 `frontend/package.json` 的直接依赖和 `frontend/src/app/main.ts` 的 `createApp` 入口。
 - Project rule sources: `fp-docs/settings/code-standards.md`（适用于 `frontend/` 的规则）
 - Confirmed overrides: none
 
 ## Component Library and Imports
 
 - Library: 不使用大型 UI 组件库；采用小型 Vue 组件和原生控件。
-- Import patterns: 使用 TypeScript/ESM 与相对模块；业务 HTTP 通过 `frontend/src/api/client.ts` 的固定同源 `/api` 客户端。
+- Import patterns: 使用 TypeScript/ESM 与相对模块；`shared` 不依赖 `features/app`，`features` 不依赖 `app`，由 `app` 完成组合。业务 HTTP 通过 `frontend/src/shared/api/client.ts` 的固定同源 `/api` 客户端。
 - Component prefix: none；组件按职责命名，不建立无当前复用依据的通用组件体系。
 
 ## Design Tokens and Styling

@@ -5,11 +5,12 @@
 - [x] **Task frontend-001: 建立独立最小工程、类型和测试入口并构建 frontend/dist**
 
 **Files:**
-- Create: `frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/pnpm-workspace.yaml`、`frontend/.gitignore`、`frontend/index.html`、`frontend/tsconfig.json`、`frontend/tsconfig.app.json`、`frontend/vite.config.ts`、`frontend/vitest.config.ts`、`frontend/src/main.ts`、`frontend/src/env.d.ts`、`frontend/src/App.vue`、`frontend/src/router/index.ts`、`frontend/scripts/check-artifact.mjs`、`frontend/tests/unit/bootstrap.spec.ts`、`frontend/tests/unit/setup.ts`。
-- Build output: `frontend/dist/`，不提交生成物。
+- Create: `frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/pnpm-workspace.yaml`、`frontend/.gitignore`、`frontend/index.html`、`frontend/tsconfig.json`、`frontend/tsconfig.app.json`、`frontend/vite.config.ts`、`frontend/vitest.config.ts`、`frontend/src/app/main.ts`、`frontend/src/env.d.ts`、`frontend/src/app/App.vue`、`frontend/src/app/router.ts`、`frontend/scripts/check-artifact.mjs`、`frontend/tests/unit/app/bootstrap.spec.ts`、`frontend/tests/unit/setup.ts`。
+- Extend after user-directed reorganization: `frontend/tests/unit/app/architecture.spec.ts`；源码按 `app/features/shared` 组织。
+- Build output: `frontend/dist/`，不提交生成物；生产由根 Dockerfile 的 frontend-builder 在镜像内重建并复制到 FastAPI runtime。
 
 **Reasoning:**
-- D-005/D-018 需要真实 Vue 构建 owner 先给 Caddy 静态产物，避免 gateway 等 UI、UI 又等 gateway。最小构建没有业务数据，不能冒充完成产品。
+- D-005/D-018 需要真实 Vue 构建 owner 先产出可复制进 FastAPI runtime 的静态文件，避免部署编排与 UI 互相等待。最小构建没有业务数据，不能冒充完成产品。
 
 **Depends on:** None
 
@@ -29,7 +30,7 @@ import { it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 it('builds a local Vue entry for the gateway, not the prototype', () => {
-  const main = readFileSync('src/main.ts', 'utf8')
+  const main = readFileSync('src/app/main.ts', 'utf8')
   expect(main).toContain('createApp')
   expect(main).not.toContain('prototype')
   const vite = readFileSync('vite.config.ts', 'utf8')
@@ -38,31 +39,31 @@ it('builds a local Vue entry for the gateway, not the prototype', () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/bootstrap.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/bootstrap.spec.ts`
 - Expected: main/config 尚不存在而 ENOENT；不得把缺测试 runner／安装失败当作业务 RED。
 
 **Step 3: Write minimal implementation**
-- Template Outline: `index.html` 仅 `#app` 与 `/src/main.ts`；App 仅 RouterView，初始 router routes 为空。没有原型 iframe、模拟标题或产品成功屏。
+- Template Outline: `index.html` 仅 `#app` 与 `/src/app/main.ts`；App 仅 RouterView，初始 router routes 为空。没有原型 iframe、模拟标题或产品成功屏。
 - Script/State Outline: `createApp(App).use(router).mount('#app')`；package显式 `type:"module"`、Vue插件、TS strict、Vite base `/`/outDir `dist`，依F01配置准确scripts。check-artifact检查dist入口、所有引用assets存在且无prototype/mock/秘密，打印入口/asset图的SHA-256作build identity，后续浏览器校验Caddy所服务的实际同一build；`.gitignore`仅本frontend的node_modules/dist/临时测试输出。
 - Style Outline: 本任务不定义产品样式；007 消费已冻结原型 token。
 - Visual / UX Checks: 不适用；没有 UI case。最小构建不能作为列表、登录或视觉验收结果。
 - UI/E2E Lifecycle and Evidence: 不适用。仅记录真实 RED/GREEN/build 命令及结果，不产生假的 SOURCE_READY／PASS。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/bootstrap.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run check:artifact`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/bootstrap.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run check:artifact`。
 - Expected: 全部退出 0，dist/index.html 和实际引用 assets 可由 Caddy 只读消费；不要求后端运行。主代理再把 frontend-001 接为 backend-039 前置。
 - 自审：依赖安装只发生在确认后，版本来自实际 lockfile；说明清楚入口与隔离边界，没有引入浏览器包／大 UI 库。后续 UI 改动必须重建 dist。
 
 **Step 5: Commit**
 ```bash
-git add frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml frontend/.gitignore frontend/index.html frontend/tsconfig.json frontend/tsconfig.app.json frontend/vite.config.ts frontend/vitest.config.ts frontend/src/main.ts frontend/src/env.d.ts frontend/src/App.vue frontend/src/router/index.ts frontend/scripts/check-artifact.mjs frontend/tests/unit/bootstrap.spec.ts frontend/tests/unit/setup.ts
+git add frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml frontend/.gitignore frontend/index.html frontend/tsconfig.json frontend/tsconfig.app.json frontend/vite.config.ts frontend/vitest.config.ts frontend/src/app/main.ts frontend/src/env.d.ts frontend/src/app/App.vue frontend/src/app/router.ts frontend/scripts/check-artifact.mjs frontend/tests/unit/app/bootstrap.spec.ts frontend/tests/unit/setup.ts
 git commit -m "build: bootstrap independent vue frontend artifact"
 ```
 
 - [x] **Task frontend-002: 冻结客户批准的原型静态来源和删减边界**
 
 **Files:**
-- Create: `frontend/tests/visual/source-map.json`、`frontend/scripts/check-visual-sources.mjs`、`frontend/tests/unit/visual-source.spec.ts`。
+- Create: `frontend/tests/visual/source-map.json`、`frontend/scripts/check-visual-sources.mjs`、`frontend/tests/unit/visual/source.spec.ts`。
 - Extend planned: `frontend/package.json`。
 
 **Reasoning:**
@@ -94,7 +95,7 @@ it('freezes approved static sources without pretending Figma exists', () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/visual-source.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/visual/source.spec.ts`
 - Expected: source-map 不存在；runner 已由 001 建好。
 
 **Step 3: Write minimal implementation**
@@ -105,20 +106,20 @@ it('freezes approved static sources without pretending Figma exists', () => {
 - UI/E2E Lifecycle and Evidence: 不适用；source-check 失败会阻塞后续 SOURCE_READY，而非自行降级为 Figma N/A 后跳验。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/visual-source.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/visual/source.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`。
 - Expected: 实际文件 hash 和受支持区域一致；补测 source-map 指 runtime、缺图、改字节时校验非零。
 - 自审：不复制原型 JS/数据进生产，不修改 local-only 原型或插件；注释解释来源图与目标 current 的单向关系。
 
 **Step 5: Commit**
 ```bash
-git add frontend/tests/visual/source-map.json frontend/scripts/check-visual-sources.mjs frontend/tests/unit/visual-source.spec.ts frontend/package.json
+git add frontend/tests/visual/source-map.json frontend/scripts/check-visual-sources.mjs frontend/tests/unit/visual/source.spec.ts frontend/package.json
 git commit -m "test: freeze customer approved prototype visual sources"
 ```
 
 - [x] **Task frontend-003: 实现精确 DTO 和不自动重放的同源 fetch**
 
 **Files:**
-- Create: `frontend/src/api/contracts.ts`、`frontend/src/api/client.ts`、`frontend/tests/unit/api-client.spec.ts`、`frontend/tests/unit/fixtures.ts`。
+- Create: `frontend/src/shared/api/contracts.ts`、`frontend/src/shared/api/client.ts`、`frontend/tests/unit/api/client.spec.ts`、`frontend/tests/unit/fixtures.ts`。
 
 **Reasoning:**
 - D-024/D-026 的字段和错误必须先固定；原型字段不能流入标题版。接口不会靠前端猜枚举或封装重试改变写入语义。
@@ -136,7 +137,7 @@ git commit -m "test: freeze customer approved prototype visual sources"
 **Step 1: Write the failing test**
 ```ts
 import { it, expect, vi } from 'vitest'
-import { createApi, ApiError } from '../../src/api/client'
+import { createApi, ApiError } from '../../../src/shared/api/client'
 
 it('sends a same-origin confirmed write once and preserves errors', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
@@ -152,7 +153,7 @@ it('sends a same-origin confirmed write once and preserves errors', async () => 
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/api-client.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/api/client.spec.ts`
 - Expected: client 模块不存在；不是把真实请求失败当 RED。
 
 **Step 3: Write minimal implementation**
@@ -163,20 +164,20 @@ it('sends a same-origin confirmed write once and preserves errors', async () => 
 - UI/E2E Lifecycle and Evidence: 不适用；仅 API 封装单元测试，没有真实接口通过事实。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/api-client.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/api/client.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
 - Expected: 精确方法／body/header/status 测试通过；参数化 login 无 CSRF、refresh 精确 trigger、current null、source entry/site 枚举区别、字段无 summary/body/event_id、外部 API 路径拒绝。
 - 自审：无通用 service registry、无响应兜底伪成功，公开方法说明服务器确认边界；不为一次 fetch 引新依赖。
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/api/contracts.ts frontend/src/api/client.ts frontend/tests/unit/api-client.spec.ts frontend/tests/unit/fixtures.ts
+git add frontend/src/shared/api/contracts.ts frontend/src/shared/api/client.ts frontend/tests/unit/api/client.spec.ts frontend/tests/unit/fixtures.ts
 git commit -m "feat: add exact same origin api client contracts"
 ```
 
 - [x] **Task frontend-004: 管理内存服务器会话和失效后的禁止写重放**
 
 **Files:**
-- Create: `frontend/src/state/session.ts`、`frontend/src/state/runtime.ts`、`frontend/tests/unit/session.spec.ts`。
+- Create: `frontend/src/features/auth/session.ts`、`frontend/src/app/runtime.ts`、`frontend/tests/unit/features/auth/session.spec.ts`。
 
 **Reasoning:**
 - D-017/D-026/D-032 需要首登例外与已登录写保护分开；失效不能保留陈旧 CSRF 或在重登后重新收藏／刷新。
@@ -194,9 +195,9 @@ git commit -m "feat: add exact same origin api client contracts"
 **Step 1: Write the failing test**
 ```ts
 import { it, expect, vi } from 'vitest'
-import { createApi, ApiError } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
-import { authFixture } from './fixtures'
+import { createApi, ApiError } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
+import { authFixture } from '../../fixtures'
 
 it('invalidates expired auth without replaying the protected action', async () => {
   const api = createApi(vi.fn<typeof fetch>())
@@ -212,7 +213,7 @@ it('invalidates expired auth without replaying the protected action', async () =
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/session.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/auth/session.spec.ts`
 - Expected: createSession 尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -223,20 +224,20 @@ it('invalidates expired auth without replaying the protected action', async () =
 - UI/E2E Lifecycle and Evidence: 不适用；006 的 AUTH-EXPIRED 必须真实服务器会话过期／撤销后浏览器验证。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/session.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/auth/session.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
 - Expected: ensure 并发只发一次、无会话401、login401/429、logout403/401、过期不重放和 storage 无写入均通过。
 - 自审：服务器是权限／到期事实源；状态名只是 UI 提示，没有客户端签发令牌或延长24h。
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/state/session.ts frontend/src/state/runtime.ts frontend/tests/unit/session.spec.ts
+git add frontend/src/features/auth/session.ts frontend/src/app/runtime.ts frontend/tests/unit/features/auth/session.spec.ts
 git commit -m "feat: keep server session state in memory without write replay"
 ```
 
 - [x] **Task frontend-005: 规范 URL 查询状态和安全站内返回地址**
 
 **Files:**
-- Create: `frontend/src/state/query.ts`、`frontend/tests/unit/query.spec.ts`。
+- Create: `frontend/src/features/headlines/query.ts`、`frontend/tests/unit/features/headlines/query.spec.ts`。
 
 **Reasoning:**
 - D-025/D-037 要求回退和深链保持条件，同时不能把非法 URL 静默解释为全部或让 returnTo 跳到外站。
@@ -254,7 +255,7 @@ git commit -m "feat: keep server session state in memory without write replay"
 **Step 1: Write the failing test**
 ```ts
 import { it, expect } from 'vitest'
-import { decodeQuery, encodeQuery, changeFilters, safeReturn } from '../../src/state/query'
+import { decodeQuery, encodeQuery, changeFilters, safeReturn } from '../../../../src/features/headlines/query'
 
 it('round-trips filters and rejects duplicate values and unsafe return paths', () => {
   expect(decodeQuery(new URLSearchParams('page=2&page=3')).ok).toBe(false)
@@ -268,7 +269,7 @@ it('round-trips filters and rejects duplicate values and unsafe return paths', (
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/query.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/query.spec.ts`
 - Expected: query 模块函数缺失。
 
 **Step 3: Write minimal implementation**
@@ -279,12 +280,12 @@ it('round-trips filters and rejects duplicate values and unsafe return paths', (
 - UI/E2E Lifecycle and Evidence: 不适用；真实页面清除／返回与非法筛选状态归010。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/query.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/query.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
 - Expected: 七 category、未知哨兵、重复／未知 key、无效闰日、起止倒置、q边界、默认值和站内地址往返通过；未知非业务参数不转发 API。
 - 自审：规范化只服务 URL 结构，不在前端自行分类、casefold 或补造日期。
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/state/query.ts frontend/tests/unit/query.spec.ts
+git add frontend/src/features/headlines/query.ts frontend/tests/unit/features/headlines/query.spec.ts
 git commit -m "feat: encode valid query state and safe return navigation"
 ```

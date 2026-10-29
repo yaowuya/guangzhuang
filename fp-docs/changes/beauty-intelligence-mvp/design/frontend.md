@@ -54,7 +54,7 @@
 
 用户打开同域 HTTPS 站点；未登录时进入登录页。通过服务器认证后，进入标题工作台，按 URL 中的筛选条件请求分页列表。点击标题打开出处侧栏，进入原文或收藏；返回时保留筛选和原列表位置。手动刷新、重试只提交任务并显示后端结果，不在浏览器执行抓取。
 
-使用 Vue 页面状态及少量共享请求逻辑是当前最小可行方案。没有现成生产前端、项目组件库或已登记前端规范；旧交互稿仅提供可见的视觉与交互参考，不能把其浏览器存储或虚构内容当作生产能力。
+前端采用 `app/features/shared` 特性目录：`app` 只负责 Vue 组合根、路由和跨 feature 装配，`features` 按 auth/headlines/bookmarks/sources/update-jobs 组织，`shared` 保存不依赖 feature 的 HTTP 契约和基础设施。shared 不依赖 features/app，features 不依赖 app；架构测试持续守卫该方向。旧交互稿仅提供视觉与交互参考，不能把其浏览器存储或虚构内容当作生产能力。
 
 ### 核心对象与职责
 
@@ -71,9 +71,9 @@
 
 #### UI/UX Settings Source
 
-- Settings read: `fp-docs/settings/frontend.md`、`fp-docs/settings/prototype-style.md`、`fp-docs/settings/agent.md` 均不存在；未发现正式生产前端或组件库。
+- Settings read: 当前已登记 `fp-docs/settings/frontend.md`、`prototype-style.md` 和 `agent.md`；生产前端使用 Vue 3 特性目录且不采用大型组件库。
 - Existing references: [旧原型](<../prototype.html>) 的样式与控件结构，以及 [桌面截图](<../.prototype-evidence/taste/inspect/desktop-fold.jpg>)、[手机截图](<../.prototype-evidence/taste/inspect/mobile-fold.jpg>)。
-- Confirmed tokens/components: D-001 确认原型作为视觉基准；D-020 确认小型 Vue 组件与原生控件，不引入大型 UI 库。不存在可复用的生产组件。
+- Confirmed tokens/components: D-001 确认原型作为视觉基准；D-020 确认小型 Vue 组件与原生控件，不引入大型 UI 库。共享 UI 只在真实跨 feature 复用出现时放入 `src/shared/ui/`。
 - Confirmed UX rules: D-025 确认登录、标题首页、收藏、出处侧栏、只读来源状态、URL 筛选与返回位置；图片外链失败不影响阅读及收藏。
 - Unknowns requiring user confirmation: 无会阻塞本次设计的视觉来源问题。登录页、只读来源面板和标题版内容未在旧稿中完整演示，须按本文件约束实现后做实际视觉复核，不能宣称用户已验收最终画面。
 

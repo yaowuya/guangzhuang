@@ -3,7 +3,7 @@
 - [ ] **Task frontend-018: 校验证据分离并进行独立只读视觉总复核**
 
 **Files:**
-- Create: `frontend/scripts/check-delivery.mjs`、`frontend/tests/unit/delivery-gate.spec.ts`。
+- Create: `frontend/scripts/check-delivery.mjs`、`frontend/tests/unit/app/delivery-gate.spec.ts`。
 - Extend planned: `frontend/package.json`。
 - Future review output: `fp-docs/changes/beauty-intelligence-mvp/.fp-execute/visual/reviews/frontend-018/review.md`。各UI case的review.md仍由原owner的独立审查阶段持有，不搬迁case或checkbox。
 
@@ -34,7 +34,7 @@ it('rejects runtime-as-reference even when a report claims all stages passed', (
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/delivery-gate.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/delivery-gate.spec.ts`
 - Expected: check-delivery/validateDelivery 尚不存在；不得把检查器拒绝现阶段未生成证据误报为测试通过。
 
 **Step 3: Write minimal implementation**
@@ -45,20 +45,20 @@ it('rejects runtime-as-reference even when a report claims all stages passed', (
 - UI/E2E Lifecycle and Evidence: 本任务没有新case，不自造SOURCE_READY；原case的视觉/真实E2E阶段与owner保持唯一。CANNOT_VERIFY阻塞；FAIL回原owner的STATIC_UI_READY修复，重拍和独立复核；三次仍失败BLOCKED，不第四次，不记Review Debt。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/delivery-gate.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run check:delivery`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/delivery-gate.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run source-check`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run check:delivery`。
 - Expected: 单元反例覆盖runtime reference、缺图、伪review、错hash/env/build、孤立case、无matrix、mock/skip、清理失败；实际check仅在全部真实原case证据齐全才退出0。独立review只读完成后才可声称视觉总审通过，不把脚本退出0当独立review。
 - 自审：审查与实现身份独立，来源异常不豁免；必要说明清楚界定检查器能证明的结构事实和不能证明的视觉判断。本轮无任何已执行review。
 
 **Step 5: Commit**
 ```bash
-git add frontend/scripts/check-delivery.mjs frontend/tests/unit/delivery-gate.spec.ts frontend/package.json
+git add frontend/scripts/check-delivery.mjs frontend/tests/unit/app/delivery-gate.spec.ts frontend/package.json
 git commit -m "test: gate delivery on separated sources and independent visual review"
 ```
 
 - [ ] **Task frontend-019: 在目标同域环境完成正常页面真实业务、重启持久与清理联验**
 
 **Files:**
-- Create: `frontend/tests/browser/cases/release.mjs`、`frontend/tests/unit/release-gate.spec.ts`。
+- Create: `frontend/tests/browser/cases/release.mjs`、`frontend/tests/unit/app/release-gate.spec.ts`。
 - Extend planned: `frontend/scripts/check-delivery.mjs`、`frontend/tests/browser/case-registry.mjs`、`frontend/tests/browser/support.mjs`。
 - Future evidence: LIVE-D、LIVE-M 双表；`fp-docs/changes/beauty-intelligence-mvp/.fp-execute/frontend-release.md`。
 
@@ -93,7 +93,7 @@ it('requires persistence and cleanup in addition to all real UI observations', (
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/release-gate.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/release-gate.spec.ts`
 - Expected: 018仅有validateDelivery，尚未导出validateRelease，测试因该专门门禁缺失失败；实现后两个负向断言分别验证持久和清理，不靠其它缺字段假RED。真实E2E初始运行：`"$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-019 --case LIVE-D --phase e2e`，缺实现/环境/独立review或真实条件必须非零/BLOCKED，不能skip冒充。
 
 **Step 3: Write minimal implementation**
@@ -133,6 +133,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/tests/browser/cases/release.mjs frontend/tests/unit/release-gate.spec.ts frontend/tests/browser/case-registry.mjs frontend/tests/browser/support.mjs
+git add frontend/tests/browser/cases/release.mjs frontend/tests/unit/app/release-gate.spec.ts frontend/tests/browser/case-registry.mjs frontend/tests/browser/support.mjs
 git commit -m "test: verify real ui persistence restart and cleanup delivery"
 ```

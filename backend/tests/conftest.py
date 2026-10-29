@@ -17,7 +17,7 @@ def now() -> datetime:
 @pytest.fixture
 def settings(tmp_path: Path):
     """生成仅供本次测试使用的配置；凭据不落仓库或日志。"""
-    from app.config import Settings
+    from app.core.config import Settings
 
     return Settings(
         database_url=f"sqlite:///{(tmp_path / 'test.sqlite3').as_posix()}",
@@ -37,7 +37,7 @@ def client(settings, db, now):
     """HTTPS 测试入口绑定同一隔离 SQLite；真实权限逻辑不替换。"""
     from sqlalchemy.orm import Session as DatabaseSession
     from app.main import create_app
-    from app.database import get_db
+    from app.presentation.http.dependencies import get_db
 
     application = create_app(settings)
     application.state.now = lambda: now
@@ -72,7 +72,7 @@ def db(settings):
     """通过真正的 Alembic 升级建立每测独立库，结束后释放所有连接。"""
     from alembic import command
     from alembic.config import Config
-    from app.database import db_session, make_engine
+    from app.infrastructure.persistence.database import db_session, make_engine
 
     engine = make_engine(settings.database_url)
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
@@ -92,7 +92,7 @@ def entry_factory(db):
     """合成来源仅存在测试库；默认待核验禁用，绝非生产授权证据。"""
     from uuid import uuid4
     from sqlalchemy import select
-    from app.models import Source, SourceEntry
+    from app.infrastructure.persistence.models import Source, SourceEntry
 
     def create(**overrides):
         if "source_id" not in overrides:
@@ -115,7 +115,7 @@ def entry_factory(db):
 @pytest.fixture
 def job_factory(db, entry_factory, now):
     """在隔离库创建持久任务及显式结果，只用于任务/恢复单元边界。"""
-    from app.models import EntryResult, UpdateJob
+    from app.infrastructure.persistence.models import EntryResult, UpdateJob
 
     def create(**overrides):
         entry_ids = overrides.pop("entry_ids", None)
@@ -215,7 +215,7 @@ def http_lab():
             return FakeConnection(self, target)
 
         def client_for(self, entry):
-            from app.safe_http import Limits, SafeClient
+            from app.infrastructure.http.safe_client import Limits, SafeClient
             return SafeClient(entry.allowed_hosts, self.resolve, self.dial, Limits())
 
     return Lab()
@@ -225,9 +225,10 @@ def http_lab():
 def worker_lab(db, settings, now, http_lab):
     """真实临时SQLite、两独立Session与可控元信息网络的串行worker实验室。"""
     from sqlalchemy.orm import Session as DatabaseSession
-    from app.jobs import enqueue
-    from app.models import SourceEntry
-    from app.sources import apply_verification, eligible_entries, load_registry, seed_sources
+    from app.application.jobs import enqueue
+    from app.infrastructure.persistence.models import SourceEntry
+    from app.application.sources import apply_verification, eligible_entries, seed_sources
+    from app.infrastructure.configuration import load_registry
 
     settings.source_config.write_text(
         (Path(__file__).resolve().parents[1] / "config" / "sources.json").read_text(encoding="utf-8"),
@@ -311,7 +312,7 @@ def worker_lab(db, settings, now, http_lab):
 def article_factory(db, entry_factory, now):
     """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
     from uuid import uuid4
-    from app.models import Article
+    from app.infrastructure.persistence.models import Article
 
     def create(**overrides):
         if "first_entry_id" not in overrides:

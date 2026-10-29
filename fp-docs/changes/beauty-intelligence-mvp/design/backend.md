@@ -25,7 +25,7 @@
 | D-017 | 服务器管理会话，退出立即失效 | 本会话 D-017 | yes | user-confirmed | D-017：用户在 `D-017-login-session` 选择服务器管理会话并立即注销。 |
 | D-018 | 页面与接口同一 HTTPS 域名 | 本会话 D-018 | yes | user-confirmed | D-018：用户在 `D-018-same-origin` 选择同一个 HTTPS 域名。 |
 | D-019 | 每日本机 SQLite 备份，保留七份 | 本会话 D-019 | yes | user-confirmed | D-019：用户在 `D-019-backup-policy` 选择每天本机自动备份及最近七份。 |
-| D-021 | Caddy 同域入口 | 本会话 D-021 | yes | user-confirmed | D-021：用户在 `D-021-architecture-entry` 选择 Caddy 提供静态页面、接口转发与 HTTPS。 |
+| D-021 | Caddy 同域入口 | 本会话 D-021 | yes | user-confirmed | D-021：用户选择 Caddy 提供同域 HTTPS；D-038 进一步把静态文件 owner 收口到 FastAPI，Caddy 只做代理与 TLS。 |
 | D-022 | 七类必要数据、SQLAlchemy 与 Alembic | 本会话 D-022 | yes | user-confirmed | D-022：用户在 `D-022-data-model` 确认七类数据、约束及 SQLAlchemy／Alembic 方案。 |
 | D-023 | 重试只处理上次失败入口 | 本会话 D-023 | yes | user-confirmed | D-023：用户在 `D-023-retry-scope` 选择仅重试失败入口，刷新更新全部已启用入口。 |
 | D-024 | 最小 REST／JSON 契约及服务端分页 | 本会话 D-024 | yes | user-confirmed | D-024：用户在 `D-024-api-contract` 确认登录、列表、收藏、来源状态与任务接口组。 |
@@ -41,13 +41,14 @@
 | D-035 | 来源各入口分别保存核验状态、原因及依据 | 本会话 D-035 | yes | user-confirmed | D-035：用户在 `D-035-source-entry-evidence` 选择“每个入口分别记录”；网站层只作汇总，未核验入口禁用。 |
 | D-036 | 列表每条直接返回服务端收藏状态，与详情及写结果一致 | 本会话 D-036 | yes | user-confirmed | D-036：用户在 `remaining-design-recommendations` 勾选“确认 D-036：列表直接返回收藏状态”。 |
 | D-037 | 保持简单页码分页，接受后台更新时跨页结果位移 | 本会话 D-037 | yes | user-confirmed | D-037：用户在 `remaining-design-recommendations` 勾选“确认 D-037：采用简单页码分页”，不增加快照或游标。 |
+| D-038 | 单根 Dockerfile 构建前后端，FastAPI 提供静态文件 | 本会话最新部署要求 | yes | user-confirmed | 用户明确要求一个代码仓库只保留一个 Dockerfile 和一个 docker-compose file，部署时把前端打包进后端静态目录。 |
 
 跨端视觉、Vue 技术及页面决策 D-001、D-005、D-020、D-025 的唯一所有者是 [前端 Decision Ledger](<frontend.md>)，此处不复制台账行。
 
 ### 决策 1：单机、双进程与同域入口
 
-- **ID**：`D-002`、`D-004`、`D-006`、`D-007`、`D-015`、`D-018`、`D-021`。
-- **选择**：一台常开 Linux 云主机，Compose 管理 Caddy、FastAPI 与一个独立后台进程；SQLite 文件使用持久卷。Caddy 提供构建后的 Vue 静态页面并反向代理接口。
+- **ID**：`D-002`、`D-004`、`D-006`、`D-007`、`D-015`、`D-018`、`D-021`、`D-038`。
+- **选择**：一台常开 Linux 云主机，唯一根 Dockerfile 编译 Vue 并复制到 FastAPI 静态目录；Compose 管理同一 runtime 镜像的 API/worker/migrate 与 gateway target。FastAPI 同域提供 SPA 和 API，Caddy 只负责 HTTPS、安全头和原样反向代理。
 - **理由与取舍**：与应用内定时线程相比，独立进程能在长采集期间保持请求可响应；与 Redis 队列或多服务器方案相比，不引入当前单人串行需求以外的服务。一个后台进程是当前上限，不靠未来扩展理由增加队列。
 - **方案比较**：Caddy 与 Nginx＋证书工具均能满足同域入口；用户按 D-021 选择 Caddy，减少证书管理环节。真实 HTTPS 仍依赖可用域名、DNS 和开放端口。
 - **状态**：上述 ID 均为 `user-confirmed`；来源为本会话各 ID 的明确选择。
@@ -98,9 +99,9 @@
 
 ```mermaid
 flowchart LR
-    Browser[个人浏览器] -->|同域 HTTPS| Caddy[Caddy]
-    Caddy -->|静态资源| Vue[Vue 构建产物]
-    Caddy -->|/api| API[FastAPI 单实例]
+    Browser[个人浏览器] -->|同域 HTTPS| Caddy[Caddy TLS 网关]
+    Caddy -->|原样反向代理| API[FastAPI 单实例]
+    API -->|静态文件与 SPA fallback| Vue[打包进 runtime 的 Vue dist]
     API --> DB[(SQLite 持久卷)]
     Worker[单个更新进程] --> DB
     Worker -->|已启用、已核验入口| Sources[固定来源 RSS／公开列表]
@@ -125,7 +126,9 @@ flowchart LR
 
 ### 后端模块设计
 
-建议以单一后端应用分成认证、资讯查询／收藏、来源读取与分类、任务／调度、数据访问／迁移、配置和备份模块。独立更新进程复用同一套数据和来源逻辑，不创建重复服务实现。模块与目录的最终命名在任务规划时落到新工程；当前不声称这些文件已存在。
+后端采用分层单体，不机械复制 MVC：`core` 持配置和跨层异常，`domain` 持纯标题／分类／来源身份规则，`application` 持查询、事务、认证、许可、任务和调度用例，`infrastructure` 持 SQLAlchemy/SQLite、本地配置、feed 解析与安全 HTTP 适配器，`presentation/http` 持 FastAPI 路由和请求适配，`runtime` 持独立 worker。根 `app.main`、`app.worker`、`app.backup` 只是稳定运行入口，内部实现不得反向依赖它们。
+
+依赖只向内：domain 不依赖其它业务层或框架；infrastructure 不依赖 application/presentation/runtime；application 不依赖 FastAPI/Starlette/presentation/runtime。当前只有 SQLite 一个持久化适配器，不建立假想 repository/DI container 或一函数一个 service；路由薄是适配器角色，而不是缺少业务层。架构守卫测试持续验证依赖方向。
 
 适配器仅针对实际有差异的 RSS、公开列表输入实现；不建立动态插件市场或来源编辑界面。五站是目标清单，不等于每站都必须自动启用；PBN 的建库限制及其他未明确的使用条件必须在启用前核验。
 

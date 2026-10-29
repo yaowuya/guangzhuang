@@ -3,8 +3,8 @@
 - [ ] **Task frontend-015: 展示五站六入口的独立许可与运行状态**
 
 **Files:**
-- Create: `frontend/src/components/SourceStatus.vue`、`frontend/src/components/SourceRow.vue`、`frontend/src/state/sources.ts`、`frontend/tests/unit/sources.spec.ts`、`frontend/tests/browser/cases/sources.mjs`。
-- Extend planned: `frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/sources/components/SourceStatus.vue`、`frontend/src/features/sources/components/SourceRow.vue`、`frontend/src/features/sources/sources.ts`、`frontend/tests/unit/features/sources/sources.spec.ts`、`frontend/tests/browser/cases/sources.mjs`。
+- Extend planned: `frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: SOURCE-D、SOURCE-M 双表。
 
 **Reasoning:**
@@ -40,7 +40,7 @@ it('does not present a pending entry as enabled because its site is partial', ()
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/sources.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/sources/sources.spec.ts`
 - Expected: SourceRow 不存在。
 
 **Step 3: Write minimal implementation**
@@ -65,7 +65,7 @@ it('does not present a pending entry as enabled because its site is partial', ()
 | frontend-015 | SOURCE-M | R-S mobile/来源；loading/error/retry、长依据与关闭焦点 | business-flow | Visual SOURCE-M route | REQUIRED | L-B；真实mobile/读错重试run；Mocked Core API:false；恢复故障/退出 | `.fp-execute/e2e/frontend-015/SOURCE-M/coverage-matrix.md` | BLOCKED：缺安全实际故障与mobile运行证据 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/sources.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/sources/sources.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in SOURCE-D SOURCE-M; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-015 --case "$c" --phase source || exit 1
@@ -77,15 +77,15 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/SourceStatus.vue frontend/src/components/SourceRow.vue frontend/src/state/sources.ts frontend/src/views/WorkspaceView.vue frontend/tests/unit/sources.spec.ts frontend/tests/browser/cases/sources.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/sources/components/SourceStatus.vue frontend/src/features/sources/components/SourceRow.vue frontend/src/features/sources/sources.ts frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/features/sources/sources.spec.ts frontend/tests/browser/cases/sources.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: show readonly per entry source permission and runtime status"
 ```
 
 - [ ] **Task frontend-016: 页面刷新、持久任务观察和只重试失败入口**
 
 **Files:**
-- Create: `frontend/src/components/UpdateStatus.vue`、`frontend/src/state/update-job.ts`、`frontend/tests/unit/update-job.spec.ts`、`frontend/tests/browser/cases/updates.mjs`。
-- Extend planned: `frontend/src/views/WorkspaceView.vue`、`frontend/src/components/SourceStatus.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/update-jobs/components/UpdateStatus.vue`、`frontend/src/features/update-jobs/update-job.ts`、`frontend/tests/unit/features/update-jobs/update-job.spec.ts`、`frontend/tests/browser/cases/updates.mjs`。
+- Extend planned: `frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/src/features/sources/components/SourceStatus.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: UPDATE-ACTIVE、UPDATE-RESULT、UPDATE-NOENTRY、UPDATE-RETRY 双表。
 
 **Reasoning:**
@@ -104,9 +104,9 @@ git commit -m "feat: show readonly per entry source permission and runtime statu
 **Step 1: Write the failing test**
 ```ts
 import { it, expect, vi } from 'vitest'
-import { createApi } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
-import { useUpdateJob } from '../../src/state/update-job'
+import { createApi } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
+import { useUpdateJob } from '../../../../src/features/update-jobs/update-job'
 import { authFixture } from './fixtures'
 
 it('represents no current job honestly without starting a poll', async () => {
@@ -126,7 +126,7 @@ it('represents no current job honestly without starting a poll', async () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/update-job.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/update-jobs/update-job.spec.ts`
 - Expected: useUpdateJob 尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -156,7 +156,7 @@ it('represents no current job honestly without starting a poll', async () => {
 | frontend-016 | UPDATE-RETRY | D-023/030；仅原失败/中断且仍可用、无候选409、404/401、重试不重采成功 | business-flow | Visual UPDATE-RETRY route | REQUIRED | L-B；真实retry及入口结果对照；Mocked Core API:false；恢复故障/保留job清单/退出 | `.fp-execute/e2e/frontend-016/UPDATE-RETRY/coverage-matrix.md` | BLOCKED：需实际失败/中断及可安全拒绝条件，不能改DB/许可 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/update-job.spec.ts tests/unit/sources.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/update-jobs/update-job.spec.ts tests/unit/features/sources/sources.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in UPDATE-ACTIVE UPDATE-RESULT UPDATE-NOENTRY UPDATE-RETRY; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-016 --case "$c" --phase source || exit 1
@@ -168,6 +168,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/UpdateStatus.vue frontend/src/state/update-job.ts frontend/src/views/WorkspaceView.vue frontend/src/components/SourceStatus.vue frontend/tests/unit/update-job.spec.ts frontend/tests/browser/cases/updates.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/update-jobs/components/UpdateStatus.vue frontend/src/features/update-jobs/update-job.ts frontend/src/features/headlines/views/WorkspaceView.vue frontend/src/features/sources/components/SourceStatus.vue frontend/tests/unit/features/update-jobs/update-job.spec.ts frontend/tests/browser/cases/updates.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: observe persistent update jobs and retry only failed entries"
 ```

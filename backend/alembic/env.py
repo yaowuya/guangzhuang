@@ -4,8 +4,8 @@ import os
 
 from alembic import context
 
-from app.database import make_engine
-from app.models import Base
+from app.infrastructure.persistence.database import make_engine
+from app.infrastructure.persistence.models import Base
 
 config = context.config
 

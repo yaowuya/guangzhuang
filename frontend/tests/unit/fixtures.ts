@@ -1,7 +1,7 @@
 // UNIT_ONLY：仅供组件及 HTTP 适配单元测试，不得导入 src 或真实 browser E2E。
 import type {
   ArticleOut, AuthOut, FiltersOut, JobOut, SourceOut,
-} from '../../src/api/contracts'
+} from '../../src/shared/api/contracts'
 
 /** 与已确认 DTO 对齐的合成条目；不能代表来源使用许可或真实资讯。 */
 export function articleFixture(overrides: Partial<ArticleOut> = {}): ArticleOut {

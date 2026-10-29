@@ -3,8 +3,9 @@
 - [x] **Task backend-001: 建立可导入应用与安全配置测试入口**
 
 **Files:**
-- Create: `backend/pyproject.toml`、`backend/.gitignore`、`backend/app/__init__.py`、`backend/app/main.py`、`backend/app/config.py`、`backend/app/errors.py`
-- Test: `backend/tests/__init__.py`、`backend/tests/conftest.py`、`backend/tests/test_bootstrap.py`
+- Create: `backend/pyproject.toml`、`backend/.gitignore`、`backend/app/__init__.py`、`backend/app/main.py`、`backend/app/core/config.py`、`backend/app/core/exceptions.py`
+- Test: `backend/tests/__init__.py`、`backend/tests/conftest.py`、`backend/tests/integration/api/test_bootstrap.py`、`backend/tests/unit/test_architecture.py`
+- Extend after user-directed reorganization: `.gitattributes`、`README.md`、`docs/architecture.md`、`backend/app/core/__init__.py`、`backend/app/domain/__init__.py`、`backend/app/application/__init__.py`、`backend/app/infrastructure/__init__.py`、`backend/app/infrastructure/http/__init__.py`、`backend/app/infrastructure/feeds/__init__.py`、`backend/app/infrastructure/persistence/__init__.py`、`backend/app/presentation/__init__.py`、`backend/app/presentation/http/__init__.py`、`backend/app/presentation/http/app.py`、`backend/app/presentation/http/errors.py`、`backend/app/presentation/http/dependencies.py`、`backend/app/runtime/__init__.py`、`backend/app/main.py`、`backend/app/worker.py`、`backend/app/backup.py`
 
 **Reasoning:**
 - P-012、D-004 的绿地起点。把脚手架、配置与首个可测试应用合在一个交付边界，不建立空分层。
@@ -20,7 +21,7 @@
 ```python
 from fastapi.testclient import TestClient
 from app.main import create_app
-from app.errors import ApiError
+from app.core.exceptions import ApiError
 
 def test_factory_and_safe_errors(settings):
     app = create_app(settings)
@@ -33,7 +34,7 @@ def test_factory_and_safe_errors(settings):
     assert r.json()['request_id']
 ```
 **Step 2: Run test to verify it fails**
-- Run（用户明确选择先在本机 Windows 开发）：先在仓库根运行 `"$PYTHON_EXE" -m venv backend/.venv`（`PYTHON_EXE` 为已核验的 Python 3.12 绝对路径），然后 `export PATH="$(pwd)/backend/.venv/Scripts:$PATH"`，核对 `python -c 'import sys; print(sys.executable)'` 指向 `backend/.venv/Scripts/python.exe`；再运行 `python -m pip install -e './backend[test]'`；最后 `cd backend && python -m pytest tests/test_bootstrap.py::test_factory_and_safe_errors -q`。安装及版本输出独立记录，不以安装失败当业务 RED。
+- Run（用户明确选择先在本机 Windows 开发）：先在仓库根运行 `"$PYTHON_EXE" -m venv backend/.venv`（`PYTHON_EXE` 为已核验的 Python 3.12 绝对路径），然后 `export PATH="$(pwd)/backend/.venv/Scripts:$PATH"`，核对 `python -c 'import sys; print(sys.executable)'` 指向 `backend/.venv/Scripts/python.exe`；再运行 `python -m pip install -e './backend[test]'`；最后 `cd backend && python -m pytest tests/integration/api/test_bootstrap.py::test_factory_and_safe_errors -q`。安装及版本输出独立记录，不以安装失败当业务 RED。
 - Expected: 测试依赖就绪后，首次收集因 `app.main` 尚无 create_app 失败；Windows GREEN 只适用于本任务可移植 FastAPI 启动与错误边界，Linux 锁、容器和真实部署仍须另行验证。
 
 **Step 3: Write minimal implementation**
@@ -50,20 +51,20 @@ def create_app(settings=None):
 - 使用显式 dataclass Settings 与文件读取；测试生成独立 Argon2id 摘要，不提交真实口令。`install_errors`注册ApiError、RequestValidationError、Starlette HTTPException与未知异常的固定脱敏包；框架404/405分别为not_found/method_not_allowed，未知500为internal_error，未知异常只记request_id与异常类型。测试同时覆盖缺配置和无网络导入。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_bootstrap.py -q`
+- Run: `cd backend && python -m pytest tests/integration/api/test_bootstrap.py -q`
 - Expected: 在 Windows 仓库级 venv 中 PASS，并保留实际命令及版本；自审公共 docstring 与配置校验一致，不把调试堆栈暴露到响应。Linux 最终容器与真实环境验收不由此替代。
 
 **Step 5: Commit**
 ```bash
-git add backend/pyproject.toml backend/.gitignore backend/app/__init__.py backend/app/main.py backend/app/config.py backend/app/errors.py backend/tests/__init__.py backend/tests/conftest.py backend/tests/test_bootstrap.py
+git add backend/pyproject.toml backend/.gitignore backend/app/__init__.py backend/app/main.py backend/app/core/config.py backend/app/core/exceptions.py backend/tests/__init__.py backend/tests/conftest.py backend/tests/integration/api/test_bootstrap.py
 git commit -m "feat: bootstrap private headline api"
 ```
 
 - [x] **Task backend-002: 建立来源与入口迁移及 SQLite 连接约束**
 
 **Files:**
-- Create: `backend/app/database.py`、`backend/app/models.py`、`backend/alembic.ini`、`backend/alembic/env.py`、`backend/alembic/versions/0001_sources.py`
-- Test: `backend/tests/test_schema.py`；Extend planned: `backend/tests/conftest.py`
+- Create: `backend/app/infrastructure/persistence/database.py`、`backend/app/infrastructure/persistence/models.py`、`backend/alembic.ini`、`backend/alembic/env.py`、`backend/alembic/versions/0001_sources.py`
+- Test: `backend/tests/integration/persistence/test_schema.py`；Extend planned: `backend/tests/conftest.py`
 
 **Reasoning:**
 - D-022、D-035 要求来源身份和入口许可分别持久保存。只迁移两个当前所需表。
@@ -89,7 +90,7 @@ def test_source_entry_constraints(db, entry_factory):
         entry_factory(source_id=e.source_id, url=e.url)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_schema.py::test_source_entry_constraints -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py::test_source_entry_constraints -q`
 - Expected: 来源模型/表尚不存在，测试失败，不得把缺依赖误当业务 RED。
 
 **Step 3: Write minimal implementation**
@@ -107,12 +108,12 @@ class SourceEntry(Base):
 - 完整声明设计的 Source/SourceEntry 所有字段；额外 CHECK 约束 allowed/restricted 的非空非空串原因/依据。`make_engine`在connect event开FK/busy_timeout；db_session为上下文管理器，get_db为FastAPI yield依赖，关闭/rollback并把rules_config/source_config路径放db.info。迁移env仅从环境读取数据库URL，不要求登录私密配置、不硬编码生产路径。0001 upgrade/downgrade对称。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_schema.py::test_source_entry_constraints -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py::test_source_entry_constraints -q`
 - Expected: PASS；补测孤儿外键、无依据启用和受限入口启用失败。自审约束说明实际兜底范围，运行核验由 I16 负责。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/database.py backend/app/models.py backend/alembic.ini backend/alembic/env.py backend/alembic/versions/0001_sources.py backend/tests/test_schema.py backend/tests/conftest.py
+git add backend/app/infrastructure/persistence/database.py backend/app/infrastructure/persistence/models.py backend/alembic.ini backend/alembic/env.py backend/alembic/versions/0001_sources.py backend/tests/integration/persistence/test_schema.py backend/tests/conftest.py
 git commit -m "feat: persist fixed source entry permissions"
 ```
 
@@ -120,7 +121,7 @@ git commit -m "feat: persist fixed source entry permissions"
 
 **Files:**
 - Create: `backend/alembic/versions/0002_articles.py`
-- Extend planned: `backend/app/models.py`、`backend/tests/test_schema.py`、`backend/tests/conftest.py`
+- Extend planned: `backend/app/infrastructure/persistence/models.py`、`backend/tests/integration/persistence/test_schema.py`、`backend/tests/conftest.py`
 
 **Reasoning:**
 - D-010、D-022、D-031 的去重、可空元信息与收藏排序必须有物理约束，不复制收藏快照。
@@ -137,7 +138,7 @@ git commit -m "feat: persist fixed source entry permissions"
 from sqlalchemy import inspect
 
 def test_article_bookmark_constraints(db, article_factory):
-    from app.models import Bookmark
+    from app.infrastructure.persistence.models import Bookmark
     a = article_factory(reported_date=None, category_codes=[])
     db.add(Bookmark(article_id=a.id, created_at=a.updated_at))
     db.commit()
@@ -146,7 +147,7 @@ def test_article_bookmark_constraints(db, article_factory):
     assert any(i['column_names'] == ['reported_date', 'id'] for i in indexes)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_schema.py::test_article_bookmark_constraints -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py::test_article_bookmark_constraints -q`
 - Expected: Article/Bookmark 尚未映射或表缺失。
 
 **Step 3: Write minimal implementation**
@@ -161,12 +162,12 @@ class Bookmark(Base):
 - Article 完整字段来自设计。CHECK 空标题/URL、json_valid、json_type='array'；受控分类在写边界校验。dedup_url 用 BINARY 唯一索引；首页日期/id倒序索引。无body、summary、image_bytes、event字段。0002 逆序删除关联表。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_schema.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py -q`
 - Expected: 已有迁移测试 PASS；新增重复URL、孤儿收藏、分类非法JSON的负向用例。自审可空字段注释不混淆未知与缺省。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/models.py backend/alembic/versions/0002_articles.py backend/tests/test_schema.py backend/tests/conftest.py
+git add backend/app/infrastructure/persistence/models.py backend/alembic/versions/0002_articles.py backend/tests/integration/persistence/test_schema.py backend/tests/conftest.py
 git commit -m "feat: add url articles and bookmark relations"
 ```
 
@@ -174,7 +175,7 @@ git commit -m "feat: add url articles and bookmark relations"
 
 **Files:**
 - Create: `backend/alembic/versions/0003_jobs.py`
-- Extend planned: `backend/app/models.py`、`backend/tests/test_schema.py`、`backend/tests/conftest.py`
+- Extend planned: `backend/app/infrastructure/persistence/models.py`、`backend/tests/integration/persistence/test_schema.py`、`backend/tests/conftest.py`
 
 **Reasoning:**
 - D-016、D-030、D-034 的一次活动与每日一次补跑必须跨进程重启仍成立。
@@ -199,7 +200,7 @@ def test_job_partial_indexes(db, job_factory):
     assert db.get(type(first), first.id).state == 'pending'
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_schema.py::test_job_partial_indexes -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py::test_job_partial_indexes -q`
 - Expected: 任务表/活动约束缺失。
 
 **Step 3: Write minimal implementation**
@@ -214,12 +215,12 @@ Index('uq_daily_schedule', UpdateJob.schedule_date, unique=True,
 - 完整映射 Job/EntryResult 字段、状态/触发 CHECK、计数非负、组合唯一与 FK。测试两个独立 Session 并发插入，另测终态不占活动键、catchup反复创建失败和日期/结束时间 CHECK；job_factory 每次提交后再启动下一次操作。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_schema.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py -q`
 - Expected: PASS。自审索引 predicate 与服务候选相同，不能只依靠先查后插。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/models.py backend/alembic/versions/0003_jobs.py backend/tests/test_schema.py backend/tests/conftest.py
+git add backend/app/infrastructure/persistence/models.py backend/alembic/versions/0003_jobs.py backend/tests/integration/persistence/test_schema.py backend/tests/conftest.py
 git commit -m "feat: constrain persistent update job concurrency"
 ```
 
@@ -227,7 +228,7 @@ git commit -m "feat: constrain persistent update job concurrency"
 
 **Files:**
 - Create: `backend/alembic/versions/0004_sessions.py`
-- Extend planned: `backend/app/models.py`、`backend/tests/test_schema.py`
+- Extend planned: `backend/app/infrastructure/persistence/models.py`、`backend/tests/integration/persistence/test_schema.py`
 
 **Reasoning:**
 - D-017、D-022 要求七表完整落地，并证明空库迁移与回滚不是模型声明层的假通过。
@@ -257,7 +258,7 @@ def test_full_upgrade_downgrade(tmp_path, monkeypatch):
     command.upgrade(cfg, 'head')
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_schema.py::test_full_upgrade_downgrade -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py::test_full_upgrade_downgrade -q`
 - Expected: sessions 不在迁移结果中。
 
 **Step 3: Write minimal implementation**
@@ -273,11 +274,11 @@ class Session(Base):
 - 0004 跟随0003，使用UTC规范化读写，迁移不读取生产密码配置、不导入原型数据。SQLAlchemy SQLite 的无时区返回值在数据库边界明确转换UTC，不做本地时间推断。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_schema.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_schema.py -q`
 - Expected: PASS；补测摘要重复和schema中无正文/图片字节列。自审 downgrade 只用于空测试库，生产回滚须按备份确认流程。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/models.py backend/alembic/versions/0004_sessions.py backend/tests/test_schema.py
+git add backend/app/infrastructure/persistence/models.py backend/alembic/versions/0004_sessions.py backend/tests/integration/persistence/test_schema.py
 git commit -m "feat: finish seven table alembic schema"
 ```

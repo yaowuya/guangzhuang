@@ -3,7 +3,7 @@
 - [x] **Task backend-006: 校验 Argon2id 密码与两级登录限流**
 
 **Files:**
-- Create: `backend/app/auth.py`、`backend/tests/test_password.py`
+- Create: `backend/app/application/auth.py`、`backend/tests/unit/application/test_password.py`
 
 **Reasoning:**
 - D-003、D-026、D-032 的首次登录不能依赖已存在的会话，但必须独立抵抗猜测并拒绝明文配置。
@@ -19,8 +19,8 @@
 ```python
 import pytest
 from argon2 import PasswordHasher
-from app.auth import verify_password, LoginLimiter
-from app.errors import ApiError
+from app.application.auth import verify_password, LoginLimiter
+from app.core.exceptions import ApiError
 
 def test_argon_and_limits(now):
     encoded = PasswordHasher().hash('test-only-secret')
@@ -34,7 +34,7 @@ def test_argon_and_limits(now):
         limiter.check('203.0.113.1', now)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_password.py::test_argon_and_limits -q`
+- Run: `cd backend && python -m pytest tests/unit/application/test_password.py::test_argon_and_limits -q`
 - Expected: auth 模块尚无校验/限流实现。
 
 **Step 3: Write minimal implementation**
@@ -51,20 +51,20 @@ def verify_password(password, encoded):
 - LoginLimiter 用线程锁保护时间队列，check 原子清理过期项并计全局尝试，failed 计地址失败。客户端地址只取可信Caddy连接传入且验证过的专用头，其它直连场景取socket peer；不消费任意X-Forwarded-For。补测窗口过期、并发和全局限流。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_password.py -q`
+- Run: `cd backend && python -m pytest tests/unit/application/test_password.py -q`
 - Expected: PASS。自审错误日志无 password/hash；限流重启边界不宣传为永久封禁。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/auth.py backend/tests/test_password.py
+git add backend/app/application/auth.py backend/tests/unit/application/test_password.py
 git commit -m "feat: protect single user password login"
 ```
 
 - [x] **Task backend-007: 签发可撤销的 24 小时会话和稳定 CSRF 标记**
 
 **Files:**
-- Extend planned: `backend/app/auth.py`
-- Create: `backend/tests/test_sessions.py`
+- Extend planned: `backend/app/application/auth.py`
+- Create: `backend/tests/integration/persistence/test_sessions.py`
 
 **Reasoning:**
 - D-017、D-026 要求退出立即失效、多页稳定CSRF，并避免数据库泄露直接等同有效Cookie泄露。
@@ -80,8 +80,8 @@ git commit -m "feat: protect single user password login"
 ```python
 import pytest
 from datetime import timedelta
-from app.auth import issue_session, resolve_session, csrf_token, revoke_session
-from app.errors import ApiError
+from app.application.auth import issue_session, resolve_session, csrf_token, revoke_session
+from app.core.exceptions import ApiError
 
 def test_expiry_csrf_and_revoke(db, settings, now):
     raw, auth = issue_session(db, settings, now)
@@ -95,7 +95,7 @@ def test_expiry_csrf_and_revoke(db, settings, now):
         resolve_session(db, raw, settings, now)
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_sessions.py::test_expiry_csrf_and_revoke -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sessions.py::test_expiry_csrf_and_revoke -q`
 - Expected: 会话函数缺失。
 
 **Step 3: Write minimal implementation**
@@ -117,20 +117,20 @@ def issue_session(db, settings, now):
 - AuthOut 在本模块定义，统一UTC输出。resolve 每次查询有效记录，过期不能续期；revoke 按摘要删除并提交。session token为空/随机/过期均统一401。清理到期记录不复活旧Cookie。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_sessions.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sessions.py -q`
 - Expected: PASS；补测两次会话不同、同会话标记稳定、数据库内容不含raw token。自审 HMAC key 不入库。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/auth.py backend/tests/test_sessions.py
+git add backend/app/application/auth.py backend/tests/integration/persistence/test_sessions.py
 git commit -m "feat: add revocable server sessions and csrf"
 ```
 
 - [x] **Task backend-008: 接通首登、会话查询、退出和业务写保护依赖**
 
 **Files:**
-- Create: `backend/app/api_auth.py`、`backend/tests/test_auth_api.py`
-- Extend planned: `backend/app/auth.py`、`backend/app/main.py`、`backend/tests/conftest.py`
+- Create: `backend/app/presentation/http/auth.py`、`backend/tests/integration/api/test_auth_api.py`
+- Extend planned: `backend/app/application/auth.py`、`backend/app/presentation/http/app.py`、`backend/tests/conftest.py`
 
 **Reasoning:**
 - D-032 的登录特例必须和其余写保护分开，否则首次访问永远不能建立会话。
@@ -158,7 +158,7 @@ def test_first_login_and_write_guards(client, settings):
     assert client.get('/api/auth/session').status_code == 401
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_auth_api.py::test_first_login_and_write_guards -q`
+- Run: `cd backend && python -m pytest tests/integration/api/test_auth_api.py::test_first_login_and_write_guards -q`
 - Expected: 登录路由404。
 
 **Step 3: Write minimal implementation**
@@ -183,11 +183,11 @@ def login(request: Request, body: LoginIn, db=Depends(get_db)):
 - login专用middleware在body解析之前检查JSON Content-Type/Origin，415与403不暴露字段内容；LoginIn只允许1–1,024字符password且forbid extra，JSON请求体上限16 KiB。create_app把LoginLimiter实例放app.state；client地址按I06可信规则，而非直接信任代理头。require_write先resolve会话，再Origin与constant-time CSRF验证；logout撤销并同Path清Cookie。GET session不改变令牌。增加完整负向参数化测试和24h测试。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_auth_api.py tests/test_sessions.py tests/test_password.py -q`
+- Run: `cd backend && python -m pytest tests/integration/api/test_auth_api.py tests/integration/persistence/test_sessions.py tests/unit/application/test_password.py -q`
 - Expected: PASS。自审所有保护依赖的职责说明、顺序与status一致，无登录前会话要求。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/api_auth.py backend/app/auth.py backend/app/main.py backend/tests/conftest.py backend/tests/test_auth_api.py
+git add backend/app/presentation/http/auth.py backend/app/application/auth.py backend/app/presentation/http/app.py backend/tests/conftest.py backend/tests/integration/api/test_auth_api.py
 git commit -m "feat: expose guarded same origin authentication"
 ```

@@ -3,8 +3,8 @@
 - [ ] **Task frontend-013: 只在服务器确认后同步收藏并保留失败前状态**
 
 **Files:**
-- Create: `frontend/src/components/BookmarkButton.vue`、`frontend/src/state/bookmarks.ts`、`frontend/tests/unit/bookmarks.spec.ts`、`frontend/tests/browser/cases/bookmarks.mjs`。
-- Extend planned: `frontend/src/components/HeadlineCard.vue`、`frontend/src/components/DetailDrawer.vue`、`frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/bookmarks/components/BookmarkButton.vue`、`frontend/src/features/bookmarks/bookmarks.ts`、`frontend/tests/unit/features/bookmarks/bookmarks.spec.ts`、`frontend/tests/browser/cases/bookmarks.mjs`。
+- Extend planned: `frontend/src/features/headlines/components/HeadlineCard.vue`、`frontend/src/features/headlines/components/DetailDrawer.vue`、`frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: BOOKMARK-CONFIRM、BOOKMARK-FAIL、BOOKMARK-IMAGEFAIL 双表。
 
 **Reasoning:**
@@ -23,9 +23,9 @@
 **Step 1: Write the failing test**
 ```ts
 import { it, expect, vi } from 'vitest'
-import { createApi, ApiError } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
-import { createBookmarks } from '../../src/state/bookmarks'
+import { createApi, ApiError } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
+import { createBookmarks } from '../../../../src/features/bookmarks/bookmarks'
 import { articleFixture, authFixture } from './fixtures'
 
 it('keeps the confirmed bookmark when storage rejects a write', async () => {
@@ -46,7 +46,7 @@ it('keeps the confirmed bookmark when storage rejects a write', async () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/bookmarks.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/bookmarks/bookmarks.spec.ts`
 - Expected: createBookmarks 缺失；单元503替身不是所需真实失败证据。
 
 **Step 3: Write minimal implementation**
@@ -73,7 +73,7 @@ it('keeps the confirmed bookmark when storage rejects a write', async () => {
 | frontend-013 | BOOKMARK-IMAGEFAIL | 提案5/6；真实第三方图失效不阻断收藏和原文 | business-flow | Visual BOOKMARK-IMAGEFAIL route | REQUIRED | L-B；真实图故障与本站写确认；Mocked Core API:false；取消新增收藏/恢复网络 | `.fp-execute/e2e/frontend-013/BOOKMARK-IMAGEFAIL/coverage-matrix.md` | BLOCKED：需要本站在线的真实图故障，不mock第三方 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/bookmarks.spec.ts tests/unit/source-image.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/bookmarks/bookmarks.spec.ts tests/unit/features/headlines/source-image.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in BOOKMARK-CONFIRM BOOKMARK-FAIL BOOKMARK-IMAGEFAIL; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-013 --case "$c" --phase source || exit 1
@@ -85,15 +85,15 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/BookmarkButton.vue frontend/src/state/bookmarks.ts frontend/src/components/HeadlineCard.vue frontend/src/components/DetailDrawer.vue frontend/src/views/WorkspaceView.vue frontend/tests/unit/bookmarks.spec.ts frontend/tests/browser/cases/bookmarks.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/bookmarks/components/BookmarkButton.vue frontend/src/features/bookmarks/bookmarks.ts frontend/src/features/headlines/components/HeadlineCard.vue frontend/src/features/headlines/components/DetailDrawer.vue frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/features/bookmarks/bookmarks.spec.ts frontend/tests/browser/cases/bookmarks.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: synchronize only server confirmed bookmark results"
 ```
 
 - [ ] **Task frontend-014: 建设服务器收藏页、独立排序和安全取消回看**
 
 **Files:**
-- Create: `frontend/src/views/FavoritesView.vue`、`frontend/tests/unit/favorites.spec.ts`、`frontend/tests/browser/cases/favorites.mjs`。
-- Extend planned: `frontend/src/router/index.ts`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/bookmarks/views/FavoritesView.vue`、`frontend/tests/unit/features/bookmarks/favorites.spec.ts`、`frontend/tests/browser/cases/favorites.mjs`。
+- Extend planned: `frontend/src/app/router.ts`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: FAVORITES-LIST、FAVORITES-EMPTY 双表。
 
 **Reasoning:**
@@ -115,8 +115,8 @@ import { it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import FavoritesView from '../../src/views/FavoritesView.vue'
-import { createApi } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
+import { createApi } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
 import { articleFixture, authFixture, filtersFixture } from './fixtures'
 
 it('keeps server bookmark order instead of sorting by reported date', async () => {
@@ -138,7 +138,7 @@ it('keeps server bookmark order instead of sorting by reported date', async () =
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/favorites.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/bookmarks/favorites.spec.ts`
 - Expected: FavoritesView 不存在。
 
 **Step 3: Write minimal implementation**
@@ -163,7 +163,7 @@ it('keeps server bookmark order instead of sorting by reported date', async () =
 | frontend-014 | FAVORITES-EMPTY | R-S收藏真空/筛选空、取消末条/末页、失败仍在、返回全部 | business-flow | Visual FAVORITES-EMPTY route | REQUIRED | L-B；真实空/取消结果；Mocked Core API:false；不动客户原收藏，退出 | `.fp-execute/e2e/frontend-014/FAVORITES-EMPTY/coverage-matrix.md` | BLOCKED：需原本空收藏的真实测试环境和运行证据 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/favorites.spec.ts tests/unit/bookmarks.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/bookmarks/favorites.spec.ts tests/unit/features/bookmarks/bookmarks.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in FAVORITES-LIST FAVORITES-EMPTY; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-014 --case "$c" --phase source || exit 1
@@ -175,6 +175,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/views/FavoritesView.vue frontend/src/router/index.ts frontend/tests/unit/favorites.spec.ts frontend/tests/browser/cases/favorites.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/bookmarks/views/FavoritesView.vue frontend/src/app/router.ts frontend/tests/unit/features/bookmarks/favorites.spec.ts frontend/tests/browser/cases/favorites.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: add persistent server ordered favorites view"
 ```

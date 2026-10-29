@@ -15,7 +15,7 @@
 
 | From task | To task | Shared contract / gate |
 | --- | --- | --- |
-| [frontend-001](<frontend/10-foundation-tasks.md>) | [backend-039](<backend/70-release-tasks.md>) | 独立前端静态构建供 Caddy 消费，不等待完整 UI 验收 |
+| [frontend-001](<frontend/10-foundation-tasks.md>) | [backend-039](<backend/70-release-tasks.md>) | 独立前端静态构建供根 Dockerfile 复制进 FastAPI runtime，不等待完整 UI 验收 |
 | [backend-008](<backend/20-auth-tasks.md>) | [frontend-006](<frontend/20-access-navigation-tasks.md>) | 单人认证、服务端会话与写保护 |
 | [backend-039](<backend/70-release-tasks.md>) | [frontend-006](<frontend/20-access-navigation-tasks.md>) | 真实同域 HTTPS 页面与 API 入口 |
 | [backend-012](<backend/30-reading-tasks.md>) | [frontend-009](<frontend/30-reading-tasks.md>) | 标题、分页、筛选与详情读取契约 |

@@ -3,7 +3,7 @@
 - [x] **Task frontend-008: 建立可取消、保留旧结果的分页读取 composable**
 
 **Files:**
-- Create: `frontend/src/state/headlines.ts`、`frontend/tests/unit/headlines.spec.ts`。
+- Create: `frontend/src/features/headlines/headlines.ts`、`frontend/tests/unit/features/headlines/headlines.spec.ts`。
 
 **Reasoning:**
 - D-024/D-025 的页面状态要防止慢旧请求覆盖新筛选；后台刷新失败必须保留上次成功内容，但不能把旧条件结果冒充新查询结果。
@@ -22,9 +22,9 @@
 ```ts
 import { it, expect, vi } from 'vitest'
 import { effectScope, ref } from 'vue'
-import { createApi } from '../../src/api/client'
-import { createSession } from '../../src/state/session'
-import { useHeadlines } from '../../src/state/headlines'
+import { createApi } from '../../../../src/shared/api/client'
+import { createSession } from '../../../../src/features/auth/session'
+import { useHeadlines } from '../../../../src/features/headlines/headlines'
 import { articleFixture, authFixture } from './fixtures'
 
 it('keeps confirmed data when a same-query reload fails', async () => {
@@ -48,7 +48,7 @@ it('keeps confirmed data when a same-query reload fails', async () => {
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/headlines.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/headlines.spec.ts`
 - Expected: useHeadlines 尚不存在。
 
 **Step 3: Write minimal implementation**
@@ -59,21 +59,21 @@ it('keeps confirmed data when a same-query reload fails', async () => {
 - UI/E2E Lifecycle and Evidence: 不适用；真实列表状态 case 在009，不以 unit 结果标 E2E covered。
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/headlines.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/headlines.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`。
 - Expected: 补测旧请求迟到、abort、快速翻页、401、首次失败无旧页、同条件刷新保留、filters失败、bookmarks endpoint 和未挂载无网络均通过。
 - 自审：不加缓存服务、通用请求状态机或业务本地持久化；注释解释新旧条件结果的不同保留语义。
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/state/headlines.ts frontend/tests/unit/headlines.spec.ts
+git add frontend/src/features/headlines/headlines.ts frontend/tests/unit/features/headlines/headlines.spec.ts
 git commit -m "feat: add cancellable server paged headline state"
 ```
 
 - [ ] **Task frontend-009: 展示标题元信息卡、真实列表状态和服务端页码**
 
 **Files:**
-- Create: `frontend/src/components/HeadlineList.vue`、`frontend/src/components/HeadlineCard.vue`、`frontend/src/components/PaginationControls.vue`、`frontend/tests/unit/headline-list.spec.ts`、`frontend/tests/browser/cases/reading.mjs`。
-- Extend planned: `frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/headlines/components/HeadlineList.vue`、`frontend/src/features/headlines/components/HeadlineCard.vue`、`frontend/src/features/headlines/components/PaginationControls.vue`、`frontend/tests/unit/features/headlines/headline-list.spec.ts`、`frontend/tests/browser/cases/reading.mjs`。
+- Extend planned: `frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: 下列 LIST case 双表。
 
 **Reasoning:**
@@ -106,7 +106,7 @@ it('renders unknown metadata honestly and never restores removed analysis', () =
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/headline-list.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/headline-list.spec.ts`
 - Expected: 标题组件缺失。
 
 **Step 3: Write minimal implementation**
@@ -137,7 +137,7 @@ it('renders unknown metadata honestly and never restores removed analysis', () =
 | frontend-009 | LIST-READFAIL | R-S读失败、权限401、保留已确认页和恢复GET重试 | business-flow | Visual LIST-READFAIL route | REQUIRED | L-B；真实故障/恢复run；Mocked Core API:false；恢复服务并退出 | `.fp-execute/e2e/frontend-009/LIST-READFAIL/coverage-matrix.md` | BLOCKED：需安全故障窗口；不能拦截响应 |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/headline-list.spec.ts tests/unit/headlines.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/headline-list.spec.ts tests/unit/features/headlines/headlines.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in LIST-D LIST-T LIST-M LIST-EMPTY LIST-READFAIL; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-009 --case "$c" --phase source || exit 1
@@ -149,15 +149,15 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/HeadlineList.vue frontend/src/components/HeadlineCard.vue frontend/src/components/PaginationControls.vue frontend/src/views/WorkspaceView.vue frontend/tests/unit/headline-list.spec.ts frontend/tests/browser/cases/reading.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/headlines/components/HeadlineList.vue frontend/src/features/headlines/components/HeadlineCard.vue frontend/src/features/headlines/components/PaginationControls.vue frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/features/headlines/headline-list.spec.ts frontend/tests/browser/cases/reading.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: render real title metadata and server pagination"
 ```
 
 - [ ] **Task frontend-010: 组合搜索筛选与地址栏、回退和空结果同步**
 
 **Files:**
-- Create: `frontend/src/components/SearchFilters.vue`、`frontend/tests/unit/filters.spec.ts`、`frontend/tests/browser/cases/filters.mjs`。
-- Extend planned: `frontend/src/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
+- Create: `frontend/src/features/headlines/components/SearchFilters.vue`、`frontend/tests/unit/features/headlines/filters.spec.ts`、`frontend/tests/browser/cases/filters.mjs`。
+- Extend planned: `frontend/src/features/headlines/views/WorkspaceView.vue`、`frontend/tests/browser/case-registry.mjs`。
 - Future evidence: FILTER-COMBINED、FILTER-INVALID 双表。
 
 **Reasoning:**
@@ -190,7 +190,7 @@ it('emits API names, including the unknown sentinel, not prototype fields', asyn
 })
 ```
 **Step 2: Run test to verify it fails**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/filters.spec.ts`
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/filters.spec.ts`
 - Expected: SearchFilters 不存在。
 
 **Step 3: Write minimal implementation**
@@ -215,7 +215,7 @@ it('emits API names, including the unknown sentinel, not prototype fields', asyn
 | frontend-010 | FILTER-INVALID | D-024/D-025；重复参数/非法日期、400反馈、无匹配/清除/重试 | business-flow | Visual FILTER-INVALID route | REQUIRED | L-B；独立review＋真实URL/HTTP拒绝；Mocked Core API:false；恢复合法URL | `.fp-execute/e2e/frontend-010/FILTER-INVALID/coverage-matrix.md` | BLOCKED：尚无真实页面结果；必需E2E不记N/A |
 
 **Step 4: Run test to verify it passes**
-- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/filters.spec.ts tests/unit/query.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
+- Run: `"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/features/headlines/filters.spec.ts tests/unit/features/headlines/query.spec.ts`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck`；`"$NODE_EXE" "$PNPM_JS" --dir frontend run build`。
 ```bash
 for c in FILTER-COMBINED FILTER-INVALID; do
   "$NODE_EXE" frontend/scripts/browser-case.mjs --task frontend-010 --case "$c" --phase source || exit 1
@@ -227,6 +227,6 @@ done
 
 **Step 5: Commit**
 ```bash
-git add frontend/src/components/SearchFilters.vue frontend/src/views/WorkspaceView.vue frontend/tests/unit/filters.spec.ts frontend/tests/browser/cases/filters.mjs frontend/tests/browser/case-registry.mjs
+git add frontend/src/features/headlines/components/SearchFilters.vue frontend/src/features/headlines/views/WorkspaceView.vue frontend/tests/unit/features/headlines/filters.spec.ts frontend/tests/browser/cases/filters.mjs frontend/tests/browser/case-registry.mjs
 git commit -m "feat: synchronize title filters with url and real server results"
 ```

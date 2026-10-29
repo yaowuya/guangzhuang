@@ -12,7 +12,7 @@ const approved = [
   ['R-D', 'approved-static-screenshot', `${change}/.prototype-evidence/taste/inspect/desktop-fold.jpg`, 'e18dbdf9a49265a71a6ca7a386455ce83c8cfaa6b0e6e88cb7d9c7765357bad0', 1440, 900],
   ['R-T', 'approved-static-screenshot', `${change}/.prototype-evidence/taste/inspect/tablet-fold.jpg`, '789ef7e1ef243ff2ef854186c07459c6f5514fed1f8b51423a00a843c3fb8f85', 768, 1024],
   ['R-M', 'approved-static-screenshot', `${change}/.prototype-evidence/taste/inspect/mobile-fold.jpg`, '61947d7ee017a1876e47dbe60601d42e458cf4dc1889b54a1face23c0cd7b260', 390, 844],
-  ['R-S', 'confirmed-ui-spec', `${change}/design/frontend.md`, 'e4f9c5c6aae0a2ba4df88416e2a8613ca933d8891a70f389effe8bf56af8b340'],
+  ['R-S', 'confirmed-ui-spec', `${change}/design/frontend.md`, 'cb2ee739dc2ad4692c5b33ca3cb5c69f9a73cdbe850216b1b8a52f8155d2d762'],
   ['R-F', 'licensed-font-assets', `${change}/.prototype-evidence/instrument-sans.ttf`, 'b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1'],
 ]
 const fontLicense = {

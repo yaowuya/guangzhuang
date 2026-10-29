@@ -3,7 +3,8 @@
 - [x] **Task backend-015: 登记五站六候选入口且默认全部禁用**
 
 **Files:**
-- Create: `backend/app/sources.py`、`backend/config/sources.json`、`backend/tests/test_sources.py`
+- Create: `backend/app/domain/sources.py`、`backend/app/application/sources.py`、`backend/config/sources.json`、`backend/tests/integration/persistence/test_sources.py`
+- Extend planned: `backend/app/infrastructure/configuration.py`
 
 **Reasoning:**
 - D-013、D-014 的目标清单不能自动变成授权清单；PR TIMES 两入口共享站点身份。
@@ -17,8 +18,9 @@
 
 **Step 1: Write the failing test**
 ```python
-from app.sources import load_registry, seed_sources
-from app.models import Source, SourceEntry
+from app.infrastructure.configuration import load_registry
+from app.application.sources import seed_sources
+from app.infrastructure.persistence.models import Source, SourceEntry
 from sqlalchemy import select
 
 def test_six_entries_start_disabled(db):
@@ -32,7 +34,7 @@ def test_six_entries_start_disabled(db):
     assert len([s for s in specs if s.source_key == 'prtimes']) == 2
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_sources.py::test_six_entries_start_disabled -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sources.py::test_six_entries_start_disabled -q`
 - Expected: 固定配置与种子函数缺失。
 
 **Step 3: Write minimal implementation**
@@ -50,20 +52,20 @@ CANDIDATES = (
 - CANDIDATES 在模块中只验证配置身份，不建立动态插件系统。kind为候选输入类型，不能证明其结构已验证；公开列表selection初始null，禁止启用。seed_sources仅插入缺失身份，不在每次启动重置已经核验的许可/运行状态；配置改动通过I16显式应用。COSIN未验证RSS不编造RSS地址。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_sources.py::test_six_entries_start_disabled -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sources.py::test_six_entries_start_disabled -q`
 - Expected: PASS；补测二次seed保留许可与last_success。自审热榜/混合行业/建库限制均不被配置隐藏。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/sources.py backend/config/sources.json backend/tests/test_sources.py
+git add backend/app/application/sources.py backend/config/sources.json backend/tests/integration/persistence/test_sources.py
 git commit -m "feat: register disabled fixed source candidates"
 ```
 
 - [x] **Task backend-016: 校验逐入口许可与只读来源状态 API**
 
 **Files:**
-- Create: `backend/app/api_sources.py`
-- Extend planned: `backend/app/sources.py`、`backend/app/main.py`、`backend/tests/test_sources.py`
+- Create: `backend/app/presentation/http/sources.py`
+- Extend planned: `backend/app/application/sources.py`、`backend/app/presentation/http/app.py`、`backend/tests/integration/persistence/test_sources.py`
 
 **Reasoning:**
 - D-035 的网站汇总不能放行另一个入口，运行错误也不能覆盖授权结论。
@@ -77,7 +79,7 @@ git commit -m "feat: register disabled fixed source candidates"
 
 **Step 1: Write the failing test**
 ```python
-from app.sources import eligible_entries, sources_out
+from app.application.sources import eligible_entries, sources_out
 
 def test_entry_evidence_is_not_site_permission(db, entry_factory):
     a = entry_factory(verification_status='allowed', verification_reason='允许标题保存',
@@ -90,7 +92,7 @@ def test_entry_evidence_is_not_site_permission(db, entry_factory):
     assert next(e for e in row.entries if e.id == b.id).enabled is False
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_sources.py::test_entry_evidence_is_not_site_permission -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sources.py::test_entry_evidence_is_not_site_permission -q`
 - Expected: 逐入口候选/汇总尚未实现。
 
 **Step 3: Write minimal implementation**
@@ -106,19 +108,19 @@ def eligible_entries(db):
 - apply_verification验证SiteEvidence，未许可不probe；只有目标环境probe成功才enabled并保存last_success_at。sources_out逐入口列许可和last_error，聚合网站状态；API GET要求session，任何POST/PUT/DELETE为405/404。read/write_evidence原子写安全JSON；不能接受Cookie/原始响应。补测运行失败不改许可，缺依据/空依据拒绝激活，来源API字段/401。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_sources.py -q`
+- Run: `cd backend && python -m pytest tests/integration/persistence/test_sources.py -q`
 - Expected: PASS。自审许可与运行字段不混用；初始化样本不冒充正式证据。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/sources.py backend/app/api_sources.py backend/app/main.py backend/tests/test_sources.py
+git add backend/app/application/sources.py backend/app/presentation/http/sources.py backend/app/presentation/http/app.py backend/tests/integration/persistence/test_sources.py
 git commit -m "feat: expose per entry permission and runtime status"
 ```
 
 - [x] **Task backend-017: 验证每次目标解析并拒绝所有非公网地址**
 
 **Files:**
-- Create: `backend/app/safe_http.py`、`backend/tests/test_safe_http.py`
+- Create: `backend/app/infrastructure/http/safe_client.py`、`backend/tests/unit/infrastructure/test_safe_http.py`
 
 **Reasoning:**
 - D-026 的SSRF保护必须覆盖域名、解析结果和后续实际连接，而不是只检查URL字面量。
@@ -133,7 +135,7 @@ git commit -m "feat: expose per entry permission and runtime status"
 **Step 1: Write the failing test**
 ```python
 import pytest
-from app.safe_http import validate_target, BlockedTarget
+from app.infrastructure.http.safe_client import validate_target, BlockedTarget
 
 @pytest.mark.parametrize('ip', ['127.0.0.1','10.1.1.1','169.254.169.254',
                                '100.64.0.1','::1','fe80::1','192.0.2.1'])
@@ -146,7 +148,7 @@ def test_reject_reserved_and_rebinding(ip):
     assert t.ip == '8.8.8.8' and t.host == 'allowed.example'
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_safe_http.py::test_reject_reserved_and_rebinding -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_safe_http.py::test_reject_reserved_and_rebinding -q`
 - Expected: 安全目标校验尚未定义。
 
 **Step 3: Write minimal implementation**
@@ -167,19 +169,19 @@ def validate_target(url, allowed_hosts, resolve):
 - 拒绝控制字符、反斜线、IP字面量、非法域名和过长URL；normalize allowlist为精确IDNA主机，不允许后缀伪装。resolver去重但验证所有IPv4/IPv6，失败closed。生产resolve_bounded用标准库受限子进程调用getaddrinfo（不使用shell），最多5秒，超时terminate/join回收；这解决socket.getaddrinfo无原生超时且不能遗留无限线程的当前安全问题。测试编码IP、凭据绕过、IPv4映射IPv6、DNS异常/超时与空解析。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_safe_http.py -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_safe_http.py -q`
 - Expected: PASS。自审Target.ip是已验证值，消费者不能再按域名重连。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/safe_http.py backend/tests/test_safe_http.py
+git add backend/app/infrastructure/http/safe_client.py backend/tests/unit/infrastructure/test_safe_http.py
 git commit -m "feat: validate approved public egress targets"
 ```
 
 - [x] **Task backend-018: 固定 TLS 连接地址并约束跳转、体积与时间**
 
 **Files:**
-- Extend planned: `backend/app/safe_http.py`、`backend/tests/test_safe_http.py`、`backend/tests/conftest.py`
+- Extend planned: `backend/app/infrastructure/http/safe_client.py`、`backend/tests/unit/infrastructure/test_safe_http.py`、`backend/tests/conftest.py`
 
 **Reasoning:**
 - URL先验检查不足以防DNS重绑定，超大/慢响应也不能占满worker或把截断视为成功。
@@ -194,7 +196,7 @@ git commit -m "feat: validate approved public egress targets"
 **Step 1: Write the failing test**
 ```python
 import pytest
-from app.safe_http import SafeClient, Limits, FetchError
+from app.infrastructure.http.safe_client import SafeClient, Limits, FetchError
 
 def test_pinned_redirect_and_limits(http_lab):
     http_lab.reply('https://allowed.example/a', status=302,
@@ -209,7 +211,7 @@ def test_pinned_redirect_and_limits(http_lab):
     assert len(http_lab.connections) == 2
 ```
 **Step 2: Run test to verify it fails**
-- Run: `cd backend && python -m pytest tests/test_safe_http.py::test_pinned_redirect_and_limits -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_safe_http.py::test_pinned_redirect_and_limits -q`
 - Expected: SafeClient/fake transport尚无实现。
 
 **Step 3: Write minimal implementation**
@@ -228,11 +230,11 @@ connection.request('GET', target.path, headers={
 - SafeClient禁自动redirect/retry，手工最多3跳，每跳重新validate_target并检查总monotonic预算。逐块读取最多max_bytes+1，Content-Length仅作提前拒绝，不作信任依据；拒绝压缩、非200、截断、超时、不支持媒体类型，关闭所有socket。新增私网跳转、循环、SNI不匹配、DNS第二次变化、chunked超限/总超时测试；每一步超时取min(剩余总预算,局部限值)，DNS子进程也受总预算限制；不记录body。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests/test_safe_http.py -q`
+- Run: `cd backend && python -m pytest tests/unit/infrastructure/test_safe_http.py -q`
 - Expected: PASS；fake lab验证连接日志而非真实联网。自审总预算也覆盖DNS/握手/读取，不能只设单次read timeout。
 
 **Step 5: Commit**
 ```bash
-git add backend/app/safe_http.py backend/tests/test_safe_http.py backend/tests/conftest.py
+git add backend/app/infrastructure/http/safe_client.py backend/tests/unit/infrastructure/test_safe_http.py backend/tests/conftest.py
 git commit -m "feat: pin tls egress and bound source requests"
 ```

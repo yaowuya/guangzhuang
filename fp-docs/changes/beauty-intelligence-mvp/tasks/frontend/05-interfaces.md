@@ -49,7 +49,7 @@ App -> RouterView
 | `listBookmarks(query,signal)`、`setBookmark(id,value,csrf)` | [I14 / backend-014](<../backend/30-reading-tasks.md#L314-L369>) | true→PUT `{}`；false→DELETE 无 body；只接受 BookmarkOut 的 article_id/bookmarked 确认；503 保留上次成功状态 |
 | `listSources(signal)` | [I16 / backend-016](<../backend/40-source-security-tasks.md#L62-L116>) | 读取 `{items:SourceOut[]}`；许可状态、enabled、last_success_at/last_error 各有标签；不提供编辑 |
 | `createJob(csrf)`、`retryJob(id,csrf)`、`getCurrentJob(signal)`、`getJob(id,signal)` | [I25 / backend-025](<../backend/50-job-tasks.md#L126-L184>) | refresh body 仅 `{trigger:'refresh'}`；retry POST `{}`；200 reused 和 202 new 都成功，保留 reused；current 读取 `{job:null}`；409 原 code 可感知；不自行采集 |
-| 构建目录 | [I39 / backend-039](<../backend/70-release-tasks.md#L61-L129>) | Caddy 读 frontend/dist，`/api` 不改写；真实 UI 不以 Vite dev server 代替同域 HTTPS |
+| 构建目录 | [I39 / backend-039](<../backend/70-release-tasks.md#L61-L129>) | 根 Dockerfile 的 frontend-builder 从源码和 frozen lock 生成/校验 dist，并复制到 FastAPI runtime 静态目录；Caddy 只做代理且 `/api` 不改写，真实 UI 不以 Vite dev server 代替同域 HTTPS |
 
 TS 类型逐字转换后端账本所有消费 DTO，包括可空字段、完整 SourceRef、EnqueueOut/CurrentJobOut；不把 `partial` 加到入口许可枚举。七 CategoryCode 使用账本固定顺序；`__uncategorized__` 和 `__unknown__` 只是查询哨兵。动态 region/product_type 不发明枚举。
 
@@ -108,7 +108,7 @@ URL 只保存读取条件和 page/page_size，不保存 CSRF、口令、收藏�
 # 仅未来 frontend-001、用户确认计划后；cwd=仓库根。
 "$NODE_EXE" "$PNPM_JS" --dir frontend add vue@3 vue-router@4
 "$NODE_EXE" "$PNPM_JS" --dir frontend add -D typescript@5 vite@7 @vitejs/plugin-vue@6 vue-tsc@3 vitest@4 @vue/test-utils@2 jsdom@27 @types/node@24
-"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/bootstrap.spec.ts
+"$NODE_EXE" "$PNPM_JS" --dir frontend run test:unit -- tests/unit/app/bootstrap.spec.ts
 "$NODE_EXE" "$PNPM_JS" --dir frontend run typecheck
 "$NODE_EXE" "$PNPM_JS" --dir frontend run build
 "$NODE_EXE" "$PNPM_JS" --dir frontend run check:artifact

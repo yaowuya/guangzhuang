@@ -281,7 +281,7 @@ def release_report(paths):
 - README保留实际依赖/构建/迁移版本、真实来源限制、备份与回滚损失窗口、错误查看和维护命令。核对proposal/backend design原文件未因实现擅改；上游small XOR与本端split manifest有效。若真实来源全部未获许可，报告具体未满足条件，任务保持未勾选，不削减为演示版；前端整体验收由主调度另行确认，不在此声称完成。
 
 **Step 4: Run test to verify it passes**
-- Run: `cd backend && python -m pytest tests --ignore=tests/acceptance -q`；`cd backend && python -m pytest tests/acceptance --live -q`；`docker compose -f deploy/compose.yaml config --quiet`
+- Run: `cd backend && python -m pytest tests --ignore=tests/acceptance -q`；`cd backend && python -m pytest tests/acceptance --live -q`；`sh deploy/compose.sh deploy/.env docker-compose.yml config --quiet`
 - Expected: 离线与真实环境均PASS，报告可复查且无凭据。工程质量自审公共职责、事务/许可/DNS原因注释与简化边界，不满足则先修再提交。
 
 **Step 5: Commit**
