@@ -1,0 +1,202 @@
+name: beauty-intelligence
+
+x-app-image: &app-image
+  image: beauty-intelligence:${IMAGE_TAG:?set IMAGE_TAG to full Git SHA}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12.14-slim-bookworm}
+      NODE_IMAGE: ${NODE_IMAGE:-node:24.21.0-bookworm-slim}
+
+x-gateway-image: &gateway-image
+  image: beauty-intelligence-gateway:${IMAGE_TAG:?set IMAGE_TAG to full Git SHA}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: gateway
+    args:
+      CADDY_IMAGE: ${CADDY_IMAGE:-caddy:2.10.2-alpine}
+
+x-app-environment: &app-environment
+  PUBLIC_ORIGIN: https://${DOMAIN:?set DOMAIN}
+  DATABASE_URL: sqlite:////data/intelligence.sqlite3
+  DATA_DIR: /data
+  BACKUP_DIR: /backups
+  SOURCE_CONFIG: /srv/app/config/sources.json
+  RULES_CONFIG: /srv/app/config/classification.json
+  STATIC_DIR: /srv/app/static
+  PASSWORD_HASH_FILE: /run/secrets/password_hash
+  CSRF_KEY_FILE: /run/secrets/csrf_key
+  TRUSTED_GATEWAY_IP: ${CADDY_IPV4:-172.30.0.2}
+
+x-app-runtime: &app-runtime
+  <<: *app-image
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  environment: *app-environment
+  volumes:
+    - app-data:/data
+    - app-backups:/backups
+    - runtime-secrets:/run/secrets:ro
+  networks:
+    - app
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+services:
+  secrets-init:
+    <<: *app-image
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    command:
+      - sh
+      - -euxc
+      - |
+        install -d -m 0700 -o 10001 -g 10001 /target
+        install -m 0400 -o 10001 -g 10001 /run/secrets/password_hash /target/password_hash
+        install -m 0400 -o 10001 -g 10001 /run/secrets/csrf_key /target/csrf_key
+    secrets:
+      - password_hash
+      - csrf_key
+    volumes:
+      - runtime-secrets:/target
+
+  migrate:
+    <<: *app-image
+    restart: "no"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command: ["alembic", "-c", "/srv/app/alembic.ini", "upgrade", "head"]
+    environment:
+      DATABASE_URL: sqlite:////data/intelligence.sqlite3
+    volumes:
+      - app-data:/data
+    networks:
+      - app
+
+  api:
+    <<: *app-runtime
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8000),2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    stop_grace_period: 30s
+
+  worker:
+    <<: *app-runtime
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 45s
+
+  web-validate:
+    <<: *gateway-image
+    profiles: ["tools"]
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /data:rw,noexec,nosuid,size=16m
+      - /config:rw,noexec,nosuid,size=16m
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    entrypoint: ["caddy"]
+    command: ["validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+
+  web:
+    <<: *gateway-image
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      app:
+        ipv4_address: ${CADDY_IPV4:-172.30.0.2}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2015/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+networks:
+  app:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${APP_SUBNET:-172.30.0.0/24}
+
+volumes:
+  runtime-secrets:
+  app-data:
+  app-backups:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  password_hash:
+    file: ${PASSWORD_HASH_FILE:-./deploy/secrets/password.hash}
+  csrf_key:
+    file: ${CSRF_KEY_FILE:-./deploy/secrets/csrf.key}

@@ -1,0 +1,334 @@
+"""仅提供隔离测试环境，不导入真实来源、部署密码或生产数据。"""
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+from argon2 import PasswordHasher
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def now() -> datetime:
+    """提供可复现的 UTC 时间；不依赖测试机本地时区。"""
+    return datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def settings(tmp_path: Path):
+    """生成仅供本次测试使用的配置；凭据不落仓库或日志。"""
+    from app.core.config import Settings
+
+    return Settings(
+        database_url=f"sqlite:///{(tmp_path / 'test.sqlite3').as_posix()}",
+        public_origin="https://unit.example",
+        password_hash=PasswordHasher().hash("unit-password"),
+        csrf_key="unit-only-csrf-key-not-a-production-secret",
+        source_config=tmp_path / "sources.json",
+        rules_config=tmp_path / "classification.json",
+        data_dir=tmp_path / "data",
+        backup_dir=tmp_path / "backups",
+        trusted_gateway_ip="",
+    )
+
+
+@pytest.fixture
+def client(settings, db, now):
+    """HTTPS 测试入口绑定同一隔离 SQLite；真实权限逻辑不替换。"""
+    from sqlalchemy.orm import Session as DatabaseSession
+    from app.main import create_app
+    from app.presentation.http.dependencies import get_db
+
+    application = create_app(settings)
+    application.state.now = lambda: now
+
+    def test_database():
+        # TestClient 在应用线程中使用自己的 Session，避免跨线程复用 fixture Session。
+        with DatabaseSession(db.bind, expire_on_commit=False) as request_db:
+            request_db.info.update(rules_config=settings.rules_config, source_config=settings.source_config)
+            try:
+                yield request_db
+            finally:
+                request_db.rollback()
+
+    application.dependency_overrides[get_db] = test_database
+    with TestClient(application, base_url=settings.public_origin, raise_server_exceptions=False) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def user_client(client, settings):
+    """通过实际登录路由取得测试 Cookie 与 CSRF，而非直接注入数据库令牌。"""
+    response = client.post("/api/auth/login", json={"password": "unit-password"},
+                           headers={"Origin": settings.public_origin})
+    assert response.status_code == 200
+    client.headers.update({"Origin": settings.public_origin,
+                           "X-CSRF-Token": response.json()["csrf_token"]})
+    return client
+
+
+@pytest.fixture
+def db(settings):
+    """通过真正的 Alembic 升级建立每测独立库，结束后释放所有连接。"""
+    from alembic import command
+    from alembic.config import Config
+    from app.infrastructure.persistence.database import db_session, make_engine
+
+    engine = make_engine(settings.database_url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        with db_session(engine) as session:
+            session.info.update(rules_config=settings.rules_config, source_config=settings.source_config)
+            yield session
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def entry_factory(db):
+    """合成来源仅存在测试库；默认待核验禁用，绝非生产授权证据。"""
+    from uuid import uuid4
+    from sqlalchemy import select
+    from app.infrastructure.persistence.models import Source, SourceEntry
+
+    def create(**overrides):
+        if "source_id" not in overrides:
+            source = db.scalar(select(Source).where(Source.key == "unit"))
+            if source is None:
+                source = Source(key="unit", name="UNIT_ONLY 来源")
+                db.add(source)
+                db.flush()
+            overrides["source_id"] = source.id
+        values = {"url": f"https://unit.example/{uuid4().hex}", "kind": "rss", **overrides}
+        entry = SourceEntry(**values)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+
+    return create
+
+
+@pytest.fixture
+def job_factory(db, entry_factory, now):
+    """在隔离库创建持久任务及显式结果，只用于任务/恢复单元边界。"""
+    from app.infrastructure.persistence.models import EntryResult, UpdateJob
+
+    def create(**overrides):
+        entry_ids = overrides.pop("entry_ids", None)
+        result_states = overrides.pop("result_states", None)
+        if entry_ids is None:
+            entry_ids = [entry_factory().id for _ in (result_states or ["pending"])]
+        if result_states is None:
+            result_states = ["pending"] * len(entry_ids)
+        if len(result_states) != len(entry_ids):
+            raise ValueError("测试入口与结果数量不一致")
+        trigger = overrides.get("trigger", "refresh")
+        state = overrides.get("state", "pending")
+        values = {"trigger": trigger, "state": state, "created_at": now, "active_key": 1,
+                  "schedule_date": now.date() if trigger in {"schedule", "catchup"} else None,
+                  "started_at": now if state != "pending" else None,
+                  "finished_at": now if state not in {"pending", "running"} else None,
+                  **overrides}
+        job = UpdateJob(**values)
+        job.entries = [EntryResult(entry_id=entry_id, state=result_state,
+                                  finished_at=now if result_state not in {"pending", "running"} else None)
+                       for entry_id, result_state in zip(entry_ids, result_states, strict=True)]
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    return create
+
+
+@pytest.fixture
+def http_lab():
+    """纯内存固定IP传输实验室；不打开 socket、不解析真实域名。"""
+
+    class FakeResponse:
+        def __init__(self, status, headers, body):
+            self.status = status
+            self.headers = {str(key).lower(): str(value) for key, value in headers.items()}
+            self.body = body
+            self.offset = 0
+            self.closed = False
+
+        def read(self, size, timeout):
+            del timeout
+            chunk = self.body[self.offset:self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+        def close(self):
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self, lab, target):
+            self.lab = lab
+            self.target = target
+            self.closed = False
+
+        def request(self, path, headers, timeout):
+            del timeout
+            assert path == self.target.path
+            url = f"https://{self.target.host}{path}"
+            self.lab.requests.append((url, dict(headers)))
+            if url not in self.lab.replies:
+                raise OSError("UNIT_ONLY no fake response")
+            status, response_headers, body = self.lab.replies[url]
+            return FakeResponse(status, response_headers, body)
+
+        def close(self):
+            self.closed = True
+
+    class Lab:
+        def __init__(self):
+            self.replies = {}
+            self.connections = []
+            self.requests = []
+            self.answers = {}
+
+        def reply(self, url, status=200, headers=None, body=b""):
+            provided = dict(headers or {})
+            lower = {key.lower() for key in provided}
+            normalized = {key: value for key, value in provided.items() if value is not None}
+            if status == 200 and "content-type" not in lower:
+                normalized["Content-Type"] = "application/rss+xml"
+            if "content-length" not in lower:
+                normalized["Content-Length"] = str(len(body))
+            self.replies[url] = (status, normalized, body)
+
+        def resolve(self, host, port):
+            assert port == 443
+            value = self.answers.get(host, ["8.8.8.8"])
+            if value and isinstance(value[0], list):
+                return value.pop(0)
+            return list(value)
+
+        def dial(self, target, timeout):
+            assert timeout > 0
+            self.connections.append(target)
+            return FakeConnection(self, target)
+
+        def client_for(self, entry):
+            from app.infrastructure.http.safe_client import Limits, SafeClient
+            return SafeClient(entry.allowed_hosts, self.resolve, self.dial, Limits())
+
+    return Lab()
+
+
+@pytest.fixture
+def worker_lab(db, settings, now, http_lab):
+    """真实临时SQLite、两独立Session与可控元信息网络的串行worker实验室。"""
+    from sqlalchemy.orm import Session as DatabaseSession
+    from app.application.jobs import enqueue
+    from app.infrastructure.persistence.models import SourceEntry
+    from app.application.sources import apply_verification, eligible_entries, seed_sources
+    from app.infrastructure.configuration import load_registry
+
+    settings.source_config.write_text(
+        (Path(__file__).resolve().parents[1] / "config" / "sources.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    settings.rules_config.write_text(
+        (Path(__file__).resolve().parents[1] / "config" / "classification.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    db.info.update(source_config=settings.source_config, rules_config=settings.rules_config)
+    other = DatabaseSession(db.bind, expire_on_commit=False)
+    other.info.update(db.info)
+
+    class WorkerLab:
+        keys = ("prtimes-rss", "happi-rss")
+
+        def __init__(self):
+            self.db = db
+            self.other_db = other
+            self.http = http_lab
+            self._now = now
+            self.job = None
+            self.approved = set()
+
+        def _approve(self, count):
+            specs = load_registry(settings.source_config)
+            seed_sources(self.db, specs)
+            for key in self.keys[:count]:
+                if key in self.approved:
+                    continue
+                spec = next(item for item in specs if item.key == key)
+                apply_verification(self.db, {
+                    "entry_key": key, "verification_status": "allowed",
+                    "verification_reason": "UNIT_ONLY worker许可", "verification_reference": "unit-reference",
+                    "automation_allowed": True, "title_storage_allowed": True,
+                }, {
+                    "attempted": True, "succeeded": True, "checked_at": self._now.isoformat(),
+                    "title_count": 1, "final_url": spec.url, "error": None,
+                }, self._now)
+                self.approved.add(key)
+            return [entry for entry in eligible_entries(self.db)
+                    if entry.entry_key in self.keys[:count]]
+
+        def pending_job(self, entries=2):
+            approved = self._approve(entries)
+            self.job = enqueue(self.db, "refresh", [entry.id for entry in approved], None, self._now).job
+            return self.job
+
+        def _entry(self, index):
+            return self.db.get(SourceEntry, self.job.entries[index].entry_id)
+
+        def succeed(self, index, title="A", url="https://example.org/a"):
+            entry = self._entry(index)
+            self.http.reply(entry.url, body=(
+                f"<rss><channel><item><title>{title}</title><link>{url}</link></item></channel></rss>"
+            ).encode())
+
+        def zero(self, index):
+            entry = self._entry(index)
+            self.http.reply(entry.url, body=b"<rss><channel></channel></rss>")
+
+        def fail(self, index, code="source_unavailable"):
+            del code
+            entry = self._entry(index)
+            self.http.reply(entry.url, status=503)
+
+        def client_factory(self, entry):
+            return self.http.client_for(entry)
+
+        def now(self):
+            return self._now
+
+    lab = WorkerLab()
+    try:
+        yield lab
+    finally:
+        other.close()
+
+
+@pytest.fixture
+def article_factory(db, entry_factory, now):
+    """创建临时标题记录供存储边界测试；不获取或伪造真实来源。"""
+    from uuid import uuid4
+    from app.infrastructure.persistence.models import Article
+
+    def create(**overrides):
+        if "first_entry_id" not in overrides:
+            entry = entry_factory()
+            overrides.setdefault("source_id", entry.source_id)
+            overrides["first_entry_id"] = entry.id
+        url = f"https://unit.example/article/{uuid4().hex}"
+        values = {
+            "original_url": url, "dedup_url": url, "title": "UNIT_ONLY 标题",
+            "search_text": "unit_only 标题", "category_codes": [], "updated_at": now,
+            **overrides,
+        }
+        article = Article(**values)
+        db.add(article)
+        db.commit()
+        db.refresh(article)
+        return article
+
+    return create

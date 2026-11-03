@@ -1,0 +1,9 @@
+# >>> FeaturePilot local prototypes >>>
+/prototype-bases/
+/changes/*/prototype/
+/changes/*/prototype.html
+/changes/*/.prototype-evidence/
+/archive/*/prototype/
+/archive/*/prototype.html
+/archive/*/.prototype-evidence/
+# <<< FeaturePilot local prototypes <<<

@@ -1,0 +1,6 @@
+# Byte-hashed canonical references must retain the same bytes on every platform.
+/fp-docs/changes/beauty-intelligence-mvp/design/frontend.md text eol=lf
+/fp-docs/changes/beauty-intelligence-mvp/tasks/backend/05-interfaces.md text eol=lf
+
+# Deployment scripts must remain runnable after a Windows checkout.
+/deploy/compose.sh text eol=lf
